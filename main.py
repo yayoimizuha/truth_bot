@@ -1,4 +1,3 @@
-
 import logging
 import os
 import random
@@ -180,11 +179,11 @@ def parse_param(param_string: str, prompts: list[dict[str, list[dict[str, str]] 
             command_builder = ["sd", "-p", prompts[-1]["content"][-1]["text"],
                                "--sampling-method", default_config["sampling-method"],
                                "-o", dest_path / "out",
-                               "-H", default_config["sizeH"], "-W", default_config["sizeW"],
-                               "-b", default_config["batch-count"]]
+                               "-H", str(default_config["sizeH"]), "-W", str(default_config["sizeW"]),
+                               "-b", str(default_config["batch-count"]), "--seed", str(default_config["seed"])]
 
             if default_config["cfg-scale"] is not None:
-                command_builder.extend(["--cfg-scale", default_config["cfg-scale"]])
+                command_builder.extend(["--cfg-scale", str(default_config["cfg-scale"])])
             if default_config["neg"] is not None:
                 command_builder.extend(["-n", default_config["neg"]])
 
