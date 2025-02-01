@@ -5,7 +5,7 @@ import shlex
 import shutil
 import subprocess
 from os.path import basename
-
+from curl_cffi import CurlMime
 import litellm
 from pathlib import Path
 from time import sleep
@@ -217,6 +217,13 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
     media_attachments = []
     if image_path is not None:
         for p in image_path:
+            mp = CurlMime()
+            mp.addpart(
+                name="file",
+                content_type="image/png",
+                filename=basename(p),
+                local_path=p
+            )
             # noinspection PyProtectedMember
             resp = api._make_session().post(
                 "https://truthsocial.com/api/v1/media",
@@ -228,7 +235,7 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
                         " Chrome/123.0.0.0 Safari/537.36"
                     ),
                 },
-                files={"file": (basename(p), open(p, mode="rb"), "image/png")}
+                multipart=mp
             )
             media_attachments.append(resp.json()["id"])
     # noinspection PyProtectedMember
