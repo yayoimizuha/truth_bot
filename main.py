@@ -203,7 +203,7 @@ def parse_param(param_string: str, prompts: list[dict[str, list[dict[str, str]] 
                     command_builder.extend(["--model", "animagine-xl-4.0.safetensors"])
                     command_builder.extend(["--vae", "ae.safetensors"])
 
-            # subprocess.run(command_builder, cwd=MODEL_BASE / model_name)
+            subprocess.run(command_builder, cwd=MODEL_BASE / model_name)
             print(shlex.join(str(p) for p in command_builder))
             return {"image_path": list(dest_path.glob("*.png"))}
         case _ as model:
