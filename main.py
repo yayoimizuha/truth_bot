@@ -237,7 +237,7 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
                 },
                 multipart=mp
             )
-            print(resp)
+            print(resp.text)
             media_attachments.append(resp.json()["id"])
     # noinspection PyProtectedMember
     api._make_session().post(
