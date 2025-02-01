@@ -4,6 +4,8 @@ import random
 import shlex
 import shutil
 import subprocess
+from os.path import basename
+
 import litellm
 from pathlib import Path
 from time import sleep
@@ -226,7 +228,7 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
                         " Chrome/123.0.0.0 Safari/537.36"
                     ),
                 },
-                multipart={"file": open(p, mode="rb")}
+                files={"file": (basename(p), open(p, mode="rb"), "image/png")}
             )
             media_attachments.append(resp.json()["id"])
     # noinspection PyProtectedMember
