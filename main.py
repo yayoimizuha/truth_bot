@@ -272,6 +272,7 @@ with subprocess.Popen(["ollama", "serve"], env=dict(os.environ, **{"OLLAMA_KEEP_
                 resp_content = parse_param(call_param, prompts)
                 print(prompts)
                 print(resp_content)
+                post_reply(destination=call_point, **resp_content)
 
         break
     print("finishing...")
