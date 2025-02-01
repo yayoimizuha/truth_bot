@@ -226,7 +226,7 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
                         " Chrome/123.0.0.0 Safari/537.36"
                     ),
                 },
-                files={"file": open(p, mode="rb")}
+                multipart={"file": open(p, mode="rb")}
             )
             media_attachments.append(resp.json()["id"])
     # noinspection PyProtectedMember
