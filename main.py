@@ -98,19 +98,20 @@ def get_all_contents(post_id: int) -> list[dict[str, list | str]]:
         user_name = status["account"]["username"]
         role = "assistant" if user_name == "mizuha_bot" else "user"
         if not contents:
-            contents.append({"role": role, "content": []})
-        if contents[-1]["role"] != role:
-            contents.append({"role": role, "content": []})
+            contents.insert(0, {"role": role, "content": []})
+        if contents[0]["role"] != role:
+            contents.insert(0, {"role": role, "content": []})
 
         text_content = html_to_text(status["content"])
         config_span = config_match.search(text_content)
         if config_span is not None:
             text_content = text_content[config_match.search(text_content).span()[1]:]
 
-        contents[-1]["content"].insert(0, {"type": "text", "text": text_content})
+        contents[0]["content"].insert(0, {"type": "text", "text": text_content})
         for media in reversed(status["media_attachments"]):
-            contents[-1]["content"].insert(0, {"type": "image_url", "image_url": media["url"]})
+            contents[0]["content"].insert(0, {"type": "image_url", "image_url": media["url"]})
         if status["in_reply_to_id"] is None:
+            print(contents)
             return contents
         post_id = status["in_reply_to_id"]
 
