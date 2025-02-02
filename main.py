@@ -189,12 +189,14 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                     default_config["sampling-method"] = "euler"
                 case "animagine-xl":
                     default_config["sampling-step"] = 25
+                    default_config["cfg-scale"] = "6.0"
                     default_config["sampling-method"] = "euler_a"
                     default_config["neg"] = ("lowres, bad anatomy, bad hands, text, error, missing finger,"
                                              " extra digits, fewer digits, cropped, worst quality, low quality,"
                                              " low score, bad score, average score, signature, watermark, username, blurry")
             _params: list[str]
             for param in _params:
+                print("param=", param)
                 if param.startswith("seed="):
                     try:
                         default_config["seed"] = int(param.removeprefix("seed="))
@@ -251,7 +253,7 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             dest_path = IMAGE_OUT / f"out_{tmp_img_id}"
             shutil.rmtree(dest_path, ignore_errors=True)
             os.makedirs(dest_path)
-            command_builder = ["/home/katayama_23266031/local/bin/sd", "-p", _prompts[-1]["content"][-1]["text"],
+            command_builder = ["/home/katayama_23266031/local/bin/sd", "-v", "-p", _prompts[-1]["content"][-1]["text"],
                                "--sampling-method", default_config["sampling-method"],
                                "--steps", str(default_config["sampling-step"]),
                                "-o", str(dest_path / "out"),
