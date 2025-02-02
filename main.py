@@ -99,7 +99,7 @@ def get_all_contents(post_id: int) -> list[dict[str, list | str]]:
         "Markdown形式の装飾は行わないでください。\n"
         "LaTeX形式を使わずに出力してください。\n"
         "必要があれば以下のユーザー情報を参考にしてください。\n"
-        "ユーザー名: @{user_name}"}]}]
+        "ユーザー名: @{user_name} "}]}]
     while True:
         # noinspection PyProtectedMember
         status = api._get(url=f"/v1/statuses/{post_id}")
