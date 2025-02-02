@@ -1,3 +1,5 @@
+import datetime
+import json
 import logging
 import os
 import pickle
@@ -5,6 +7,8 @@ import random
 import shlex
 import shutil
 import subprocess
+from time import sleep
+
 import litellm
 import re
 from curl_cffi import requests
@@ -24,7 +28,7 @@ PROCEED_PICKLE = Path(os.environ["PROCEED_PICKLE"])
 if not PROCEED_PICKLE.is_file():
     with PROCEED_PICKLE.open(mode="wb") as f:
         # noinspection PyTypeChecker
-        pickle.dump({}, f)
+        pickle.dump({"XXXXX"}, f)
 logging.getLogger(__name__).setLevel(logging.WARNING)
 
 conn = connect(DB)
@@ -150,7 +154,7 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             model_name = "llm-jp-3-13b-instruct" if model_name == "llm-jp-3" else model_name
 
             model_name = "gemini/gemini-2.0-flash-exp" if model_name == "gemini-2.0-flash" else model_name
-            model_name = "claude-3-5-haiku-latest" if model_name == "claude-3.5-haiku" else model_name
+            model_name = "anthropic/claude-3-5-haiku-latest" if model_name == "claude-3.5-haiku" else model_name
             model_name = "ollama/hf.co/alfredplpl/llm-jp-3-13b-instruct-gguf" \
                 if model_name == "llm-jp-3-13b-instruct" else model_name
 
@@ -164,10 +168,15 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                 "cfg-scale": None,
                 "sampling-method": "euler_a",
                 "batch-count": 1,
-                "sizeH": 512,
-                "sizeW": 512,
+                "sizeH": 768,
+                "sizeW": 768,
                 "neg": None
             }
+            match model_name:
+                case "flux-dev":
+                    pass
+                case "sd-3.5-large":
+                    default_config["sampling-method"] = "euler"
             _params: list[str]
             for param in _params:
                 if param.startswith("seed="):
@@ -207,12 +216,12 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                         return {"error": f"failed while parsing sampling-method. :{e}"}
                 if param.startswith("sizeH="):
                     try:
-                        default_config["sizeH"] = max(32, min(1024, int(param.removeprefix("sizeH="))))
+                        default_config["sizeH"] = max(32, min(1280, int(param.removeprefix("sizeH="))))
                     except ValueError as e:
                         return {"error": f"failed while parsing sizeH. :{e}"}
                 if param.startswith("sizeW="):
                     try:
-                        default_config["sizeW"] = max(32, min(1024, int(param.removeprefix("sizeW="))))
+                        default_config["sizeW"] = max(32, min(1280, int(param.removeprefix("sizeW="))))
                     except ValueError as e:
                         return {"error": f"failed while parsing sizeW. :{e}"}
 
@@ -223,7 +232,7 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             os.makedirs(dest_path)
             command_builder = ["/home/katayama_23266031/local/bin/sd", "-p", _prompts[-1]["content"][-1]["text"],
                                "--sampling-method", default_config["sampling-method"],
-                               "-o", dest_path / "out",
+                               "-o", str(dest_path / "out"),
                                "-H", str(default_config["sizeH"]), "-W", str(default_config["sizeW"]),
                                "-b", str(default_config["batch-count"]), "--seed", str(default_config["seed"])]
 
@@ -239,10 +248,11 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                     command_builder.extend(["--clip_l", "clip_l.safetensors"])
                     command_builder.extend(["--t5xxl", "t5xxl_fp16.safetensors"])
                 case "sd-3.5-large":
-                    command_builder.extend(["--diffusion-model", "sd3.5_large-q8_0.gguf"])
+                    command_builder.extend(["--model", "sd3.5_large-q8_0.gguf"])
                     command_builder.extend(["--clip_g", "clip_g.safetensors"])
                     command_builder.extend(["--clip_l", "clip_l.safetensors"])
-                    command_builder.extend(["--t5xxl", "t5xxl_fp8_e4m3fn_scaled.safetensors"])
+                    command_builder.extend(["--vae", "ae.safetensors"])
+                    command_builder.extend(["--t5xxl", "t5xxl_fp16.safetensors"])
                 case "animagine-xl":
                     command_builder.extend(["--model", "animagine-xl-4.0.safetensors"])
                     command_builder.extend(["--vae", "ae.safetensors"])
@@ -251,15 +261,15 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             with open("sd-out.log", mode="a") as sd_out, open("sd-err.log", mode="a") as sd_err:
                 subprocess.run(command_builder, cwd=MODEL_BASE / model_name, stdout=sd_out, stderr=sd_err)
             return {"image_path": list(dest_path.glob("*.png")),
-                    "resp_text": "reproduce command: sd {}".format(shlex.join(command_builder[1:])),
+                    "resp_text": "config: {}".format(json.dumps(default_config, indent=2)),
                     }
         case _ as model:
             print(f"unknown model: {model}")
             return {"error": f"{model} is not available."}
 
 
-def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Optional[list[str]] = None,
-               error: Optional[str] = None):
+def post_reply(destination: int, mention_to: str, resp_text: Optional[str] = None,
+               image_path: Optional[list[Path]] = None, error: Optional[str] = None):
     media_attachments = []
     cfs = create_scraper()
     headers = {
@@ -274,7 +284,7 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
             resp = cfs.post(
                 url="https://truthsocial.com/api/v1/media",
                 headers=headers,
-                files={"file": open(p, mode="rb")}
+                files={"file": p.read_bytes()},
             )
             if resp.status_code != 200:
                 print("https://truthsocial.com/api/v1/media", resp.json())
@@ -287,7 +297,7 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
               "media_ids": [str(_id) for _id in media_attachments],
               "poll": None, "quote_id": "",
               "status": resp_text if resp_text is not None else error if error is not None else "",
-              "to": [], "visibility": "public",
+              "to": [mention_to], "visibility": "public",
               "group_timeline_visible": False}
     )
     if resp.status_code != 200:
@@ -299,46 +309,57 @@ with (open("ollama.log", mode="a") as ollama_log,
       subprocess.Popen(["/home/katayama_23266031/local/bin/ollama", "serve"],
                        env=dict(os.environ, **{"OLLAMA_KEEP_ALIVE": "10s"}),
                        stdout=ollama_log, stderr=ollama_log) as ollama):
-    while True:
-        # noinspection PyProtectedMember
-        notifications = api._get(url="/v1/notifications", params=params)
-        for notification in notifications:
-            # print(json.dumps(notification, ensure_ascii=False))
+    try:
+        while True:
+            # noinspection PyProtectedMember
+            notifications = api._get(url="/v1/notifications", params=params)
+            for notification in notifications:
+                # print(json.dumps(notification, ensure_ascii=False))
 
-            if not notification.get("status"):
-                continue
-            if not notification["status"].get("content"):
-                continue
-            in_reply_to = notification["status"]["in_reply_to_id"]
-
-            call_point = notification["status"]["id"]  # このIDのポストに返信
-
-            with PROCEED_PICKLE.open(mode="rb") as pickle_file:
-                if call_point in pickle.load(pickle_file):
+                if not notification.get("status"):
                     continue
+                if not notification["status"].get("content"):
+                    continue
+                in_reply_to = notification["status"]["in_reply_to_id"]
+                mention_id = notification["account"]["username"]
 
-            print("")
-            post_text = html_to_text(notification["status"]["content"])
+                call_point = notification["status"]["id"]  # このIDのポストに返信
 
-            matches = config_match.search(post_text)
-            parse_error = matches is None
-            if not parse_error:
-                call_param = matches.group(1)
-                try:
-                    prompts = get_all_contents(call_point)
-                    resp_content = parse_param(call_param, prompts)
-                    print(prompts)
-                    print(resp_content)
-                    post_reply(destination=call_point, **resp_content)
-                except Exception as e:
-                    print(e)
-                    with PROCEED_PICKLE.open(mode="wb") as pickle_file:
+                with PROCEED_PICKLE.open(mode="rb") as pickle_file:
+                    pickle_data = pickle_file.read()
+                    # print(pickle.loads(pickle_data))
+                    if call_point in pickle.loads(pickle_data):
+                        continue
+                # exit()
+
+                # print("")
+                post_text = html_to_text(notification["status"]["content"])
+
+                matches = config_match.search(post_text)
+                parse_error = matches is None
+                if not parse_error:
+                    call_param = matches.group(1)
+                    try:
+                        prompts = get_all_contents(call_point)
+                        resp_content = parse_param(call_param, prompts)
+                        print(prompts)
+                        print(resp_content)
+                        post_reply(destination=call_point, mention_to=mention_id, **resp_content)
+                    except Exception as e:
+                        print(e)
+                    with PROCEED_PICKLE.open(mode="r+b") as pickle_file:
                         # noinspection PyTypeChecker
-                        pickle.dump(pickle.load(pickle_file) | {call_point}, pickle_file)
+                        proceed = pickle.loads(pickle_file.read())
+                        proceed |= {call_point}
+                        print(call_point)
+                        pickle_file.seek(0)
+                        pickle_file.write(pickle.dumps(proceed))
 
-        break
-    print("finishing...")
-    ollama.terminate()
+            sleep(20)
+            print("[NOW] ", datetime.datetime.now())
+    except KeyboardInterrupt as e:
+        print("finishing...", e)
+        ollama.terminate()
     # print(post_text[matches.span()[1]:])
     # resp = litellm.completion(model="gemini/gemini-1.5-flash-latest", messages=messages)
     # print(resp)
