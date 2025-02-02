@@ -91,26 +91,35 @@ def html_to_text(post_html: str) -> str:
 
 
 def get_all_contents(post_id: int) -> list[dict[str, list | str]]:
-    contents = []
+    contents = [{"role": "system", "content": [{"type": "text", "text":
+        "TRUTH Socialはトランプ元大統領によって2022年に設立されたソーシャルメディアアプリで、"
+        "彼が主要なSNSから追放されたことへの対抗策として設立されました。\n"
+        "あなたは、TRUTH SocialというSNS上で稼働するbotです。\n"
+        "ユーザーの入力に対して親切かつ適切に応答してください。\n"
+        "Markdown形式の装飾は行わないでください。\n"
+        "LaTeX形式を使わずに出力してください。\n"
+        "必要があれば以下のユーザー情報を参考にしてください。\n"
+        "ユーザー名: @{user_name}"}]}]
     while True:
         # noinspection PyProtectedMember
         status = api._get(url=f"/v1/statuses/{post_id}")
         user_name = status["account"]["username"]
         role = "assistant" if user_name == "mizuha_bot" else "user"
-        if not contents:
-            contents.insert(0, {"role": role, "content": []})
-        if contents[0]["role"] != role:
-            contents.insert(0, {"role": role, "content": []})
+        if contents.__len__() == 1:
+            contents.insert(1, {"role": role, "content": []})
+        if contents[1]["role"] != role:
+            contents.insert(1, {"role": role, "content": []})
 
         text_content = html_to_text(status["content"])
         config_span = config_match.search(text_content)
         if config_span is not None:
             text_content = text_content[config_match.search(text_content).span()[1]:]
 
-        contents[0]["content"].insert(0, {"type": "text", "text": text_content})
+        contents[1]["content"].insert(0, {"type": "text", "text": text_content})
         for media in reversed(status["media_attachments"]):
-            contents[0]["content"].insert(0, {"type": "image_url", "image_url": {"url": media["url"]}})
+            contents[1]["content"].insert(0, {"type": "image_url", "image_url": {"url": media["url"]}})
         if status["in_reply_to_id"] is None:
+            contents[0]["content"][0]["text"] = contents[0]["content"][0]["text"].format(user_name=user_name)
             print(contents)
             return contents
         post_id = status["in_reply_to_id"]
