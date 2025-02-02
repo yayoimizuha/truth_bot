@@ -6,10 +6,8 @@ import shutil
 import subprocess
 import litellm
 import re
-from os.path import basename
-from curl_cffi import CurlMime, requests
+from curl_cffi import requests
 from pathlib import Path
-from time import sleep
 from typing import Optional
 from bs4 import BeautifulSoup
 from truthbrush import Api
@@ -68,7 +66,8 @@ class WritableApi(Api):
 
 api = WritableApi()
 
-api.__check_login()
+# noinspection PyProtectedMember,PyUnresolvedReferences
+api._Api__check_login()
 
 params = {"types[]": ["mention"]}
 
@@ -106,9 +105,9 @@ def get_all_contents(post_id: int) -> list[dict[str, list | str]]:
         post_id = status["in_reply_to_id"]
 
 
-def parse_param(param_string: str, prompts: list[dict[str, list[dict[str, str]] | str]]) \
+def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]] | str]]) \
         -> dict[str, list[str] | str] | None:
-    model_name, *params = param_string.split(sep=":")
+    model_name, *_params = param_string.split(sep=":")
     match model_name:
         case "gemini" | "gemini-1.5-flash" | "gemini-2.0-flash" | "gpt-4o-mini" | "haiku" | "claude-3.5-haiku" | \
              "llm-jp-3-13b-instruct" | "llm-jp-3":
@@ -117,8 +116,8 @@ def parse_param(param_string: str, prompts: list[dict[str, list[dict[str, str]] 
                 "max_tokens": 2000,
                 "top_p": None
             }
-            params: list[str]
-            for param in params:
+            # params: list[str]
+            for param in _params:
                 if param.startswith("temperature="):
                     try:
                         default_config["temperature"] = max(0.0, min(2.0, float(param.removeprefix("temperature="))))
@@ -146,10 +145,11 @@ def parse_param(param_string: str, prompts: list[dict[str, list[dict[str, str]] 
 
             model_name = "gemini/gemini-2.0-flash-exp" if model_name == "gemini-2.0-flash" else model_name
             model_name = "claude-3-5-haiku-latest" if model_name == "claude-3.5-haiku" else model_name
-            model_name = "ollama/hf.co/alfredplpl/llm-jp-3-13b-instruct-gguf" if model_name == "llm-jp-3-13b-instruct" else model_name
+            model_name = "ollama/hf.co/alfredplpl/llm-jp-3-13b-instruct-gguf" \
+                if model_name == "llm-jp-3-13b-instruct" else model_name
 
             print("generate text.")
-            resp = litellm.completion(model=model_name, messages=prompts, **default_config)
+            resp = litellm.completion(model=model_name, messages=_prompts, **default_config)
             return {"resp_text": resp.choices[0].message.content}
 
         case "flux-dev" | "sd-3.5-large" | "animagine-xl":
@@ -162,8 +162,8 @@ def parse_param(param_string: str, prompts: list[dict[str, list[dict[str, str]] 
                 "sizeW": 512,
                 "neg": None
             }
-            params: list[str]
-            for param in params:
+            _params: list[str]
+            for param in _params:
                 if param.startswith("seed="):
                     try:
                         default_config["seed"] = int(param.removeprefix("seed="))
@@ -215,7 +215,7 @@ def parse_param(param_string: str, prompts: list[dict[str, list[dict[str, str]] 
             dest_path = IMAGE_OUT / f"out_{tmp_img_id}"
             shutil.rmtree(dest_path, ignore_errors=True)
             os.makedirs(dest_path)
-            command_builder = ["sd", "-p", prompts[-1]["content"][-1]["text"],
+            command_builder = ["sd", "-p", _prompts[-1]["content"][-1]["text"],
                                "--sampling-method", default_config["sampling-method"],
                                "-o", dest_path / "out",
                                "-H", str(default_config["sizeH"]), "-W", str(default_config["sizeW"]),
@@ -283,6 +283,7 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
 
 with subprocess.Popen(["ollama", "serve"], env=dict(os.environ, **{"OLLAMA_KEEP_ALIVE": "10s"})) as ollama:
     while True:
+        # noinspection PyProtectedMember
         notifications = api._get(url="/v1/notifications", params=params)
         for notification in notifications:
             # print(json.dumps(notification, ensure_ascii=False))
