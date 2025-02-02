@@ -160,8 +160,12 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                 if model_name == "llm-jp-3-13b-instruct" else model_name
 
             print("generate text.")
-            resp = litellm.completion(model=model_name, messages=_prompts, **default_config)
-            return {"resp_text": resp.choices[0].message.content}
+            try:
+                resp = litellm.completion(model=model_name, messages=_prompts, **default_config)
+                return {"resp_text": resp.choices[0].message.content}
+            except Exception as e:
+                print(f"failed to generate text. :{e}")
+                return {"resp_text": f"failed to generate text. :{e}"}
 
         case "flux-dev" | "sd-3.5-large" | "animagine-xl":
             default_config = {
@@ -175,7 +179,8 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             }
             match model_name:
                 case "flux-dev":
-                    pass
+                    default_config["sampling-method"] = "euler"
+                    default_config["cfg-scale"] = "1.0"
                 case "sd-3.5-large":
                     default_config["sampling-method"] = "euler"
             _params: list[str]
@@ -361,41 +366,3 @@ with (open("ollama.log", mode="a") as ollama_log,
     except KeyboardInterrupt as e:
         print("finishing...", e)
         ollama.terminate()
-    # print(post_text[matches.span()[1]:])
-    # resp = litellm.completion(model="gemini/gemini-1.5-flash-latest", messages=messages)
-    # print(resp)
-    # while True:
-    # print("\n\n\n\n")
-    # noinspection PyProtectedMember
-    # notifications = api._get(url="/v1/notifications", params=params)
-    # if not notifications: break
-    # for b in notifications:
-    #     cursor = conn.cursor()
-    #     if not b.get("status"):
-    #         break
-    #     # try:
-    #     if cursor.execute("SELECT EXISTS (SELECT 1 FROM proceed_table WHERE id=?)", (b["id"],)).fetchone()[0]:
-    #         print("exist")
-    #         exit()
-    #     # print(exists)
-    #     # print(json.dumps(b, indent=4))
-    #     # print(b["id"])
-    #     # if "mentions" in b["status"].keys():
-    #     #     print(b["status"]["mentions"])
-    #     # print(b["status"]["account"].keys())
-    #     print(f'{b["status"]=}')
-    #     print(type(b))
-    #     post_html = BeautifulSoup(b["status"]["content"], "lxml")
-    #     list(map(lambda mention: mention.decompose(), post_html.find_all("a", {"class": "mention"})))
-    #     post_text = post_html.get_text()
-    #     print(post_text)
-    #     params["max_id"] = b["id"]
-    #     # cursor.execute("INSERT INTO proceed_table values (?)", (b["id"],))
-    #     conn.commit()
-    #     # except Exception as e:
-    #     #     print(e)
-    #     #     conn.rollback()
-    #     #     exit()
-    #     # finally:
-    #     #     cursor.close()
-    # sleep(5)
