@@ -1,5 +1,6 @@
 import logging
 import os
+import pickle
 import random
 import shlex
 import shutil
@@ -17,8 +18,13 @@ from cloudscraper import create_scraper
 from truthbrush.api import USER_AGENT, BASE_URL, CLIENT_ID, CLIENT_SECRET, proxies
 
 DB = "proceed.sqlite"
-MODEL_BASE = Path("/home/katayama_23266031/models/")
-IMAGE_OUT = Path("/home/katayama_23266031/image_dest")
+MODEL_BASE = Path(os.environ["MODEL_BASE"])
+IMAGE_OUT = Path(os.environ["IMAGE_OUT"])
+PROCEED_PICKLE = Path(os.environ["PROCEED_PICKLE"])
+if not PROCEED_PICKLE.is_file():
+    with PROCEED_PICKLE.open(mode="wb") as f:
+        # noinspection PyTypeChecker
+        pickle.dump({}, f)
 logging.getLogger(__name__).setLevel(logging.WARNING)
 
 conn = connect(DB)
@@ -215,7 +221,7 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             dest_path = IMAGE_OUT / f"out_{tmp_img_id}"
             shutil.rmtree(dest_path, ignore_errors=True)
             os.makedirs(dest_path)
-            command_builder = ["sd", "-p", _prompts[-1]["content"][-1]["text"],
+            command_builder = ["/home/katayama_23266031/local/bin/sd", "-p", _prompts[-1]["content"][-1]["text"],
                                "--sampling-method", default_config["sampling-method"],
                                "-o", dest_path / "out",
                                "-H", str(default_config["sizeH"]), "-W", str(default_config["sizeW"]),
@@ -242,8 +248,11 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                     command_builder.extend(["--vae", "ae.safetensors"])
 
             print(shlex.join(str(p) for p in command_builder))
-            subprocess.run(command_builder, cwd=MODEL_BASE / model_name)
-            return {"image_path": list(dest_path.glob("*.png"))}
+            with open("sd-out.log", mode="a") as sd_out, open("sd-err.log", mode="a") as sd_err:
+                subprocess.run(command_builder, cwd=MODEL_BASE / model_name, stdout=sd_out, stderr=sd_err)
+            return {"image_path": list(dest_path.glob("*.png")),
+                    "resp_text": "reproduce command: sd {}".format(shlex.join(command_builder[1:])),
+                    }
         case _ as model:
             print(f"unknown model: {model}")
             return {"error": f"{model} is not available."}
@@ -267,45 +276,65 @@ def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Op
                 headers=headers,
                 files={"file": open(p, mode="rb")}
             )
+            if resp.status_code != 200:
+                print("https://truthsocial.com/api/v1/media", resp.json())
             media_attachments.append(resp.json()["id"])
     # noinspection PyProtectedMember
-    cfs.post(
+    resp = cfs.post(
         "https://truthsocial.com/api/v1/statuses",
         headers=headers,
-        data={"content_type": "text/plain", "in_reply_to_id": str(destination),
+        json={"content_type": "text/plain", "in_reply_to_id": str(destination),
               "media_ids": [str(_id) for _id in media_attachments],
               "poll": None, "quote_id": "",
               "status": resp_text if resp_text is not None else error if error is not None else "",
               "to": [], "visibility": "public",
-              "group_timeline_visible": True}
+              "group_timeline_visible": False}
     )
+    if resp.status_code != 200:
+        print("https://truthsocial.com/api/v1/statuses", resp.request.body)
+        print("https://truthsocial.com/api/v1/statuses", resp.json())
 
 
-with subprocess.Popen(["ollama", "serve"], env=dict(os.environ, **{"OLLAMA_KEEP_ALIVE": "10s"})) as ollama:
+with (open("ollama.log", mode="a") as ollama_log,
+      subprocess.Popen(["/home/katayama_23266031/local/bin/ollama", "serve"],
+                       env=dict(os.environ, **{"OLLAMA_KEEP_ALIVE": "10s"}),
+                       stdout=ollama_log, stderr=ollama_log) as ollama):
     while True:
         # noinspection PyProtectedMember
         notifications = api._get(url="/v1/notifications", params=params)
         for notification in notifications:
             # print(json.dumps(notification, ensure_ascii=False))
+
             if not notification.get("status"):
                 continue
-            print("")
             if not notification["status"].get("content"):
                 continue
             in_reply_to = notification["status"]["in_reply_to_id"]
 
             call_point = notification["status"]["id"]  # このIDのポストに返信
+
+            with PROCEED_PICKLE.open(mode="rb") as pickle_file:
+                if call_point in pickle.load(pickle_file):
+                    continue
+
+            print("")
             post_text = html_to_text(notification["status"]["content"])
 
             matches = config_match.search(post_text)
             parse_error = matches is None
             if not parse_error:
                 call_param = matches.group(1)
-                prompts = get_all_contents(call_point)
-                resp_content = parse_param(call_param, prompts)
-                print(prompts)
-                print(resp_content)
-                post_reply(destination=call_point, **resp_content)
+                try:
+                    prompts = get_all_contents(call_point)
+                    resp_content = parse_param(call_param, prompts)
+                    print(prompts)
+                    print(resp_content)
+                    post_reply(destination=call_point, **resp_content)
+                except Exception as e:
+                    print(e)
+                    with PROCEED_PICKLE.open(mode="wb") as pickle_file:
+                        # noinspection PyTypeChecker
+                        pickle.dump(pickle.load(pickle_file) | {call_point}, pickle_file)
 
         break
     print("finishing...")
