@@ -172,6 +172,7 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                 "seed": 42,
                 "cfg-scale": None,
                 "sampling-method": "euler_a",
+                "sampling-step": 20,
                 "batch-count": 1,
                 "sizeH": 768,
                 "sizeW": 768,
@@ -179,10 +180,19 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             }
             match model_name:
                 case "flux-dev":
+                    default_config["sampling-step"] = 35
                     default_config["sampling-method"] = "euler"
-                    default_config["cfg-scale"] = "1.0"
+                    default_config["cfg-scale"] = "7.0"
                 case "sd-3.5-large":
+                    default_config["sampling-step"] = 25
+                    default_config["cfg-scale"] = "4.5"
                     default_config["sampling-method"] = "euler"
+                case "animagine-xl":
+                    default_config["sampling-step"] = 25
+                    default_config["sampling-method"] = "euler_a"
+                    default_config["neg"] = ("lowres, bad anatomy, bad hands, text, error, missing finger,"
+                                             " extra digits, fewer digits, cropped, worst quality, low quality,"
+                                             " low score, bad score, average score, signature, watermark, username, blurry")
             _params: list[str]
             for param in _params:
                 if param.startswith("seed="):
@@ -205,6 +215,11 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                         default_config["batch-count"] = max(1, min(20, int(param.removeprefix("b="))))
                     except ValueError as e:
                         return {"error": f"failed while parsing batch-count. :{e}"}
+                if param.startswith("sampling-step="):
+                    try:
+                        default_config["sampling-step"] = max(1, min(50, int(param.removeprefix("sampling-step="))))
+                    except ValueError as e:
+                        return {"error": f"failed while parsing sampling-step. :{e}"}
                 if param.startswith("batch-count="):
                     try:
                         default_config["batch-count"] = max(1, min(20, int(param.removeprefix("batch-count="))))
@@ -238,6 +253,7 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             os.makedirs(dest_path)
             command_builder = ["/home/katayama_23266031/local/bin/sd", "-p", _prompts[-1]["content"][-1]["text"],
                                "--sampling-method", default_config["sampling-method"],
+                               "--steps", str(default_config["sampling-step"]),
                                "-o", str(dest_path / "out"),
                                "-H", str(default_config["sizeH"]), "-W", str(default_config["sizeW"]),
                                "-b", str(default_config["batch-count"]), "--seed", str(default_config["seed"])]
