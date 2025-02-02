@@ -109,7 +109,7 @@ def get_all_contents(post_id: int) -> list[dict[str, list | str]]:
 
         contents[0]["content"].insert(0, {"type": "text", "text": text_content})
         for media in reversed(status["media_attachments"]):
-            contents[0]["content"].insert(0, {"type": "image_url", "image_url": media["url"]})
+            contents[0]["content"].insert(0, {"type": "image_url", "image_url": {"url": media["url"]}})
         if status["in_reply_to_id"] is None:
             print(contents)
             return contents
@@ -162,7 +162,10 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             print("generate text.")
             try:
                 resp = litellm.completion(model=model_name, messages=_prompts, **default_config)
-                return {"resp_text": resp.choices[0].message.content}
+                resp_text = resp.choices[0].message.content
+                if resp_text.__len__() > 2900:
+                    resp_text = resp_text[:2900] + "\n[応答が長すぎるため、打ち切られました。]"
+                return {"resp_text": resp_text}
             except Exception as e:
                 print(f"failed to generate text. :{e}")
                 return {"resp_text": f"failed to generate text. :{e}"}
