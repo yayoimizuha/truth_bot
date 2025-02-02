@@ -8,5 +8,6 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "litellm",
-    "ollama"
+    "ollama",
+    "cloudscraper"
 ]

@@ -4,16 +4,19 @@ import random
 import shlex
 import shutil
 import subprocess
-from os.path import basename
-from curl_cffi import CurlMime
 import litellm
+import re
+from os.path import basename
+from curl_cffi import CurlMime, requests
 from pathlib import Path
 from time import sleep
 from typing import Optional
 from bs4 import BeautifulSoup
 from truthbrush import Api
 from sqlite3 import connect
-import re
+from loguru import logger
+from cloudscraper import create_scraper
+from truthbrush.api import USER_AGENT, BASE_URL, CLIENT_ID, CLIENT_SECRET, proxies
 
 DB = "proceed.sqlite"
 MODEL_BASE = Path("/home/katayama_23266031/models/")
@@ -25,15 +28,49 @@ cursor = conn.cursor()
 cursor.execute(R"CREATE TABLE IF NOT EXISTS proceed_table(id INTEGER PRIMARY KEY UNIQUE NOT NULL )")
 cursor.execute(R"CREATE UNIQUE INDEX IF NOT EXISTS proceed_index ON proceed_table(id)")
 cursor.close()
-api = Api()
 
-# noinspection PyProtectedMember
-api._Api__check_login()
 
-print(api.auth_id)
+class WritableApi(Api):
+    def get_auth_id(self, username: str, password: str) -> Optional[str]:
+        """Logs in to Truth account and returns the session token"""
+        url = BASE_URL + "/oauth/token"
+        try:
+            payload = {
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "grant_type": "password",
+                "username": username,
+                "password": password,
+                "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
+                "scope": "read write follow push",
+            }
+
+            sess_req = requests.request(
+                "POST",
+                url,
+                json=payload,
+                proxies=proxies,
+                impersonate="chrome120",
+                headers={
+                    "User-Agent": USER_AGENT,
+                },
+            )
+            sess_req.raise_for_status()
+        except requests.RequestsError as e:
+            logger.error(f"Failed login request: {str(e)}")
+            return None
+
+        if not sess_req.json()["access_token"]:
+            raise ValueError("Invalid truthsocial.com credentials provided!")
+
+        return sess_req.json()["access_token"]
+
+
+api = WritableApi()
+
+api.__check_login()
 
 params = {"types[]": ["mention"]}
-# noinspection PyProtectedMember
 
 config_match = re.compile(r"^\s*?\[([A-z:=0-9\-.\s,]*)]")
 
@@ -215,42 +252,26 @@ def parse_param(param_string: str, prompts: list[dict[str, list[dict[str, str]] 
 def post_reply(destination: int, resp_text: Optional[str] = None, image_path: Optional[list[str]] = None,
                error: Optional[str] = None):
     media_attachments = []
+    cfs = create_scraper()
+    headers = {
+        "Authorization": f"Bearer {api.auth_id}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
+        "Referer": "https://truthsocial.com",
+        "Origin": "https://truthsocial.com",
+        "Accept": "*/*"
+    }
     if image_path is not None:
         for p in image_path:
-            mp = CurlMime()
-            mp.addpart(
-                name="file",
-                content_type="image/png",
-                filename=basename(p),
-                local_path=p
+            resp = cfs.post(
+                url="https://truthsocial.com/api/v1/media",
+                headers=headers,
+                files={"file": open(p, mode="rb")}
             )
-            # noinspection PyProtectedMember
-            resp = api._make_session().post(
-                "https://truthsocial.com/api/v1/media",
-                impersonate="chrome123",
-                headers={
-                    "Authorization": "Bearer " + api.auth_id,
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
-                        " Chrome/123.0.0.0 Safari/537.36"
-                    ),
-                },
-                multipart=mp
-            )
-            print(resp.text)
-            print(mp)
             media_attachments.append(resp.json()["id"])
     # noinspection PyProtectedMember
-    api._make_session().post(
+    cfs.post(
         "https://truthsocial.com/api/v1/statuses",
-        impersonate="chrome123",
-        headers={
-            "Authorization": "Bearer " + api.auth_id,
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
-                " Chrome/123.0.0.0 Safari/537.36"
-            ),
-        },
+        headers=headers,
         data={"content_type": "text/plain", "in_reply_to_id": str(destination),
               "media_ids": [str(_id) for _id in media_attachments],
               "poll": None, "quote_id": "",
