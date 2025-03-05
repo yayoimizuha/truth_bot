@@ -33,8 +33,8 @@ if not PROCEED_PICKLE.is_file():
     with PROCEED_PICKLE.open(mode="wb") as f:
         # noinspection PyTypeChecker
         pickle.dump({"XXXXX"}, f)
-logger = logging.getLogger(__name__)
-logger.setLevel("WARNING" if getenv("LOG_LEVEL") is not None else getenv("LOG_LEVEL"))
+logger = logging.getLogger(__file__)
+logger.setLevel("WARNING" if getenv("LOG_LEVEL") is None else getenv("LOG_LEVEL"))
 # logging.basicConfig(level=getenv("LOG_LEVEL"))
 conn = connect(DB)
 cursor = conn.cursor()
