@@ -1,3 +1,5 @@
+import base64
+import copy
 import datetime
 import json
 import logging
@@ -61,8 +63,10 @@ class WritableApi(Api):
                 impersonate="chrome120",
                 headers={
                     "User-Agent": USER_AGENT,
+                    "Content-Type": "application/json"
                 },
             )
+            print(sess_req.json())
             sess_req.raise_for_status()
         except requests.RequestsError as e:
             logger.error(f"Failed login request: {str(e)}")
@@ -70,7 +74,6 @@ class WritableApi(Api):
 
         if not sess_req.json()["access_token"]:
             raise ValueError("Invalid truthsocial.com credentials provided!")
-
         return sess_req.json()["access_token"]
 
 
@@ -95,9 +98,10 @@ def get_all_contents(post_id: int) -> list[dict[str, list | str]]:
         "TRUTH Socialはトランプ元大統領によって2022年に設立されたソーシャルメディアアプリで、"
         "彼が主要なSNSから追放されたことへの対抗策として設立されました。\n"
         "あなたは、TRUTH SocialというSNS上で稼働するbotです。\n"
-        "ユーザーの入力に対して親切かつ適切に応答してください。\n"
-        "Markdown形式の装飾は行わないでください。\n"
-        "LaTeX形式を使わずに出力してください。\n"
+        "ユーザーの入力に対して親切かつ適切に、出来る限り応答してください。\n"
+        "ユーザーからの指示がない場合はMarkdown形式の装飾は行わないでください。\n"
+        "ユーザーからの指示がない場合はLaTeX形式を使わずに出力してください。\n"
+        "ユーザー名の後には空白「 」を入れてください。\n"
         "必要があれば以下のユーザー情報を参考にしてください。\n"
         "ユーザー名: @{user_name} "}]}]
     while True:
@@ -117,10 +121,21 @@ def get_all_contents(post_id: int) -> list[dict[str, list | str]]:
 
         contents[1]["content"].insert(0, {"type": "text", "text": text_content})
         for media in reversed(status["media_attachments"]):
-            contents[1]["content"].insert(0, {"type": "image_url", "image_url": {"url": media["url"]}})
+            print(f"{media=}")
+            image_query = requests.get(media["url"])
+            image_blob = image_query.content
+            mine_type = image_query.headers["content-type"]
+            contents[1]["content"].insert(0, {"type": "image_url", "image_url": {
+                "url": f"data:{mine_type};base64,{base64.b64encode(image_blob).decode()}"}})
         if status["in_reply_to_id"] is None:
             contents[0]["content"][0]["text"] = contents[0]["content"][0]["text"].format(user_name=user_name)
-            print(contents)
+            print_contents = copy.deepcopy(contents)
+            for i in range(print_contents.__len__()):
+                for j in range(print_contents[i]["content"].__len__()):
+                    if print_contents[i]["content"][j]["type"] == "image_url":
+                        print_contents[i]["content"][j]["image_url"]["url"] = \
+                            print_contents[i]["content"][j]["image_url"]["url"][:40] + "...."
+            print(print_contents)
             return contents
         post_id = status["in_reply_to_id"]
 
@@ -130,7 +145,7 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
     model_name, *_params = param_string.split(sep=":")
     match model_name:
         case "gemini" | "gemini-1.5-flash" | "gemini-2.0-flash" | "gpt-4o-mini" | "haiku" | "claude-3.5-haiku" | \
-             "llm-jp-3-13b-instruct" | "llm-jp-3":
+             "llm-jp-3-13b-instruct" | "llm-jp-3" | "grok" | "grok-2":
             default_config = {
                 "temperature": 1.0,
                 "max_tokens": 2000,
@@ -162,9 +177,11 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             model_name = "gemini-2.0-flash" if model_name == "gemini" else model_name
             model_name = "claude-3.5-haiku" if model_name == "haiku" else model_name
             model_name = "llm-jp-3-13b-instruct" if model_name == "llm-jp-3" else model_name
+            model_name = "grok-2" if model_name == "grok" else model_name
 
             model_name = "gemini/gemini-2.0-flash-exp" if model_name == "gemini-2.0-flash" else model_name
             model_name = "anthropic/claude-3-5-haiku-latest" if model_name == "claude-3.5-haiku" else model_name
+            model_name = "xai/grok-2-latest" if model_name == "grok-2" else model_name
             model_name = "ollama/hf.co/alfredplpl/llm-jp-3-13b-instruct-gguf" \
                 if model_name == "llm-jp-3-13b-instruct" else model_name
 
@@ -182,9 +199,9 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
         case "flux-dev" | "sd-3.5-large" | "animagine-xl":
             default_config = {
                 "seed": 42,
-                "cfg-scale": None,
+                "cfg-scale": 5.0,
                 "sampling-method": "euler_a",
-                "sampling-step": 20,
+                "sampling-step": 25,
                 "batch-count": 1,
                 "sizeH": 768,
                 "sizeW": 768,
@@ -192,16 +209,13 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
             }
             match model_name:
                 case "flux-dev":
-                    default_config["sampling-step"] = 35
                     default_config["sampling-method"] = "euler"
-                    default_config["cfg-scale"] = "7.0"
+                    default_config["cfg-scale"] = 1.0
                 case "sd-3.5-large":
-                    default_config["sampling-step"] = 25
-                    default_config["cfg-scale"] = "4.5"
+                    default_config["cfg-scale"] = 4.5
                     default_config["sampling-method"] = "euler"
                 case "animagine-xl":
-                    default_config["sampling-step"] = 25
-                    default_config["cfg-scale"] = "6.0"
+                    default_config["cfg-scale"] = 6.0
                     default_config["sampling-method"] = "euler_a"
                     default_config["neg"] = ("lowres, bad anatomy, bad hands, text, error, missing finger,"
                                              " extra digits, fewer digits, cropped, worst quality, low quality,"
@@ -216,7 +230,7 @@ def parse_param(param_string: str, _prompts: list[dict[str, list[dict[str, str]]
                         return {"error": f"failed while parsing seed. :{e}"}
                 if param.startswith("cfg-scale="):
                     try:
-                        default_config["cfg-scale"] = max(1, min(20, int(param.removeprefix("cfg-scale="))))
+                        default_config["cfg-scale"] = max(1.0, min(20.0, float(param.removeprefix("cfg-scale="))))
                     except ValueError as e:
                         return {"error": f"failed while parsing cfg-scale. :{e}"}
                 if param.startswith("neg="):
@@ -378,8 +392,8 @@ with (open("ollama.log", mode="a") as ollama_log,
                     try:
                         prompts = get_all_contents(call_point)
                         resp_content = parse_param(call_param, prompts)
-                        print(prompts)
-                        print(resp_content)
+                        # print(prompts)
+                        # print(resp_content)
                         post_reply(destination=call_point, mention_to=mention_id, **resp_content)
                     except Exception as e:
                         print(e)
