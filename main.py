@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from os import getenv
 from time import sleep
 
 import litellm
@@ -32,8 +33,8 @@ if not PROCEED_PICKLE.is_file():
     with PROCEED_PICKLE.open(mode="wb") as f:
         # noinspection PyTypeChecker
         pickle.dump({"XXXXX"}, f)
-logging.getLogger(__name__).setLevel(logging.WARNING)
-
+# logging.getLogger(__name__).setLevel(logging.WARNING)
+logging.basicConfig(level=getenv("LOG_LEVEL"))
 conn = connect(DB)
 cursor = conn.cursor()
 cursor.execute(R"CREATE TABLE IF NOT EXISTS proceed_table(id INTEGER PRIMARY KEY UNIQUE NOT NULL )")
@@ -429,8 +430,8 @@ with (open("ollama.log", mode="a") as ollama_log,
                     try:
                         prompts, user_name = get_all_contents(call_point)
                         resp_content = parse_param(call_param, prompts, user_name)
-                        print(prompts)
-                        print(resp_content)
+                        # print(prompts)
+                        # print(resp_content)
                         post_reply(destination=call_point, mention_to=mention_id, **resp_content)
                     except Exception as e:
                         exception_type, exception_object, exception_traceback = sys.exc_info()
