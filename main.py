@@ -9,6 +9,7 @@ import random
 import shlex
 import shutil
 import subprocess
+import sys
 from time import sleep
 
 import litellm
@@ -432,6 +433,10 @@ with (open("ollama.log", mode="a") as ollama_log,
                         # print(resp_content)
                         post_reply(destination=call_point, mention_to=mention_id, **resp_content)
                     except Exception as e:
+                        exception_type, exception_object, exception_traceback = sys.exc_info()
+                        filename = exception_traceback.tb_frame.f_code.co_filename
+                        line_no = exception_traceback.tb_lineno
+                        print(exception_type, exception_object, exception_traceback, filename, line_no, sep="\n=====\n")
                         print(e)
                     with PROCEED_PICKLE.open(mode="r+b") as pickle_file:
                         # noinspection PyTypeChecker
