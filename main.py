@@ -141,8 +141,8 @@ def get_all_contents(post_id: int) -> Tuple[ConversationsType, str]:
     while True:
         # noinspection PyProtectedMember
         status = api._get(url=f"/v1/statuses/{post_id}")
-        user_name = status["account"]["username"]
-        role = "assistant" if user_name == "mizuha_bot" else "user"
+        username = status["account"]["username"]
+        role = "assistant" if username == "mizuha_bot" else "user"
         if contents.__len__() == 0:
             contents.insert(0, {"role": role, "content": []})
         if contents[0]["role"] != role:
@@ -169,7 +169,7 @@ def get_all_contents(post_id: int) -> Tuple[ConversationsType, str]:
                         print_contents[i]["content"][j]["image_url"]["url"] = \
                             print_contents[i]["content"][j]["image_url"]["url"][:40] + "...."
             print(print_contents)
-            return contents, user_name
+            return contents, username
         post_id = status["in_reply_to_id"]
 
 
@@ -429,8 +429,8 @@ with (open("ollama.log", mode="a") as ollama_log,
                     try:
                         prompts, user_name = get_all_contents(call_point)
                         resp_content = parse_param(call_param, prompts, user_name)
-                        # print(prompts)
-                        # print(resp_content)
+                        print(prompts)
+                        print(resp_content)
                         post_reply(destination=call_point, mention_to=mention_id, **resp_content)
                     except Exception as e:
                         exception_type, exception_object, exception_traceback = sys.exc_info()
