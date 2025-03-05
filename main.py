@@ -21,7 +21,7 @@ from typing import Optional, Tuple
 from bs4 import BeautifulSoup
 from truthbrush import Api
 from sqlite3 import connect
-from loguru import logger
+# from loguru import logger
 from cloudscraper import create_scraper
 from truthbrush.api import USER_AGENT, BASE_URL, CLIENT_ID, CLIENT_SECRET, proxies
 
@@ -33,8 +33,9 @@ if not PROCEED_PICKLE.is_file():
     with PROCEED_PICKLE.open(mode="wb") as f:
         # noinspection PyTypeChecker
         pickle.dump({"XXXXX"}, f)
-# logging.getLogger(__name__).setLevel(logging.WARNING)
-logging.basicConfig(level=getenv("LOG_LEVEL"))
+logger = logging.getLogger(__name__)
+logger.setLevel("WARNING" if getenv("LOG_LEVEL") is not None else getenv("LOG_LEVEL"))
+# logging.basicConfig(level=getenv("LOG_LEVEL"))
 conn = connect(DB)
 cursor = conn.cursor()
 cursor.execute(R"CREATE TABLE IF NOT EXISTS proceed_table(id INTEGER PRIMARY KEY UNIQUE NOT NULL )")
@@ -448,7 +449,7 @@ with (open("ollama.log", mode="a") as ollama_log,
                         pickle_file.write(pickle.dumps(proceed))
 
             sleep(20)
-            logging.info(f"NOW: {datetime.datetime.now()}")
+            logger.info(f"NOW: {datetime.datetime.now()}")
     except KeyboardInterrupt as e:
         print("finishing...", e)
         ollama.terminate()
