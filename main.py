@@ -15,7 +15,7 @@ import litellm
 import re
 from curl_cffi import requests
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 from bs4 import BeautifulSoup
 from truthbrush import Api
 from sqlite3 import connect
@@ -135,7 +135,7 @@ def html_to_text(post_html: str) -> str:
 ConversationsType = list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
 
 
-def get_all_contents(post_id: int) -> ConversationsType:
+def get_all_contents(post_id: int) -> Tuple[ConversationsType, str]:
     contents: ConversationsType = []
     while True:
         # noinspection PyProtectedMember
@@ -161,7 +161,6 @@ def get_all_contents(post_id: int) -> ConversationsType:
             contents[0]["content"].insert(0, {"type": "image_url", "image_url": {
                 "url": f"data:{mine_type};base64,{base64.b64encode(image_blob).decode()}"}})
         if status["in_reply_to_id"] is None:
-            contents[0]["content"][0]["text"] = contents[0]["content"][0]["text"].format(user_name=user_name)
             print_contents = copy.deepcopy(contents)
             for i in range(print_contents.__len__()):
                 for j in range(print_contents[i]["content"].__len__()):
@@ -169,7 +168,7 @@ def get_all_contents(post_id: int) -> ConversationsType:
                         print_contents[i]["content"][j]["image_url"]["url"] = \
                             print_contents[i]["content"][j]["image_url"]["url"][:40] + "...."
             print(print_contents)
-            return contents
+            return contents, user_name
         post_id = status["in_reply_to_id"]
 
 
@@ -211,7 +210,7 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
             model_name = "llm-jp-3-13b-instruct" if model_name == "llm-jp-3" else model_name
             model_name = "grok-2" if model_name == "grok" else model_name
 
-            if system_prompt := system_prompts.get(model_name) is None:
+            if (system_prompt := system_prompts.get(model_name)) is None:
                 system_prompt = system_prompts["default"]
             system_prompt = system_prompt.format(username=username)
             _prompts.insert(0, {"role": "system", "content": [{"text": system_prompt}]})
@@ -427,8 +426,8 @@ with (open("ollama.log", mode="a") as ollama_log,
                 if not parse_error:
                     call_param = matches.group(1)
                     try:
-                        prompts = get_all_contents(call_point)
-                        resp_content = parse_param(call_param, prompts, mention_id)
+                        prompts, user_name = get_all_contents(call_point)
+                        resp_content = parse_param(call_param, prompts, user_name)
                         # print(prompts)
                         # print(resp_content)
                         post_reply(destination=call_point, mention_to=mention_id, **resp_content)
@@ -443,7 +442,7 @@ with (open("ollama.log", mode="a") as ollama_log,
                         pickle_file.write(pickle.dumps(proceed))
 
             sleep(20)
-            print("[NOW] ", datetime.datetime.now())
+            logging.info(f"NOW: {datetime.datetime.now()}")
     except KeyboardInterrupt as e:
         print("finishing...", e)
         ollama.terminate()
