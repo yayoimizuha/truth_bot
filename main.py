@@ -213,7 +213,7 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
 
             if (system_prompt := system_prompts.get(model_name)) is None:
                 system_prompt = system_prompts["default"]
-            system_prompt = system_prompt.format(username=username)
+            system_prompt = system_prompt.format(user_name=username)
             _prompts.insert(0, {"role": "system", "content": [{"text": system_prompt}]})
 
             model_name = "gemini/gemini-2.0-flash-exp" if model_name == "gemini-2.0-flash" else model_name
