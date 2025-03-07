@@ -245,7 +245,8 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
                 "batch-count": 1,
                 "sizeH": 768,
                 "sizeW": 768,
-                "neg": None
+                "neg": None,
+                "skip-clip": 2
             }
             match model_name:
                 case "flux-dev":
@@ -260,6 +261,10 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
                     default_config["neg"] = ("lowres, bad anatomy, bad hands, text, error, missing finger,"
                                              " extra digits, fewer digits, cropped, worst quality, low quality,"
                                              " low score, bad score, average score, signature, watermark, username, blurry")
+                case "wai-nsfw-illustrious":
+                    default_config["cfg-scale"] = 4.0
+                    default_config["sampling-method"] = "euler_a"
+
             _params: list[str]
             for param in _params:
                 print("param=", param)
@@ -273,6 +278,11 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
                         default_config["cfg-scale"] = max(1.0, min(20.0, float(param.removeprefix("cfg-scale="))))
                     except ValueError as e:
                         return {"error": f"failed while parsing cfg-scale. :{e}"}
+                if param.startswith("clip-skip="):
+                    try:
+                        default_config["clip-skip"] = max(1, min(2, int(param.removeprefix("clip-skip="))))
+                    except ValueError as e:
+                        return {"error": f"failed while parsing clip-skip. :{e}"}
                 if param.startswith("neg="):
                     try:
                         default_config["neg"] = str(param.removeprefix("neg="))
@@ -322,7 +332,7 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
             command_builder = ["/home/katayama_23266031/local/bin/sd", "-v", "-p", _prompts[-1]["content"][-1]["text"],
                                "--sampling-method", default_config["sampling-method"],
                                "--steps", str(default_config["sampling-step"]),
-                               "-o", str(dest_path / "out"),
+                               "-o", str(dest_path / "out"), "--clip-skip", str(default_config["clip-skip"]),
                                "-H", str(default_config["sizeH"]), "-W", str(default_config["sizeW"]),
                                "-b", str(default_config["batch-count"]), "--seed", str(default_config["seed"])]
 
@@ -346,6 +356,9 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
                 case "animagine-xl":
                     command_builder.extend(["--model", "animagine-xl-4.0.safetensors"])
                     command_builder.extend(["--vae", "ae.safetensors"])
+                case "wai-nsfw-illustrious":
+                    command_builder.extend(["--model", "WAI-NSFW-Illustrious.safetensors"])
+                    command_builder.extend(["--vae", "sdxl_vae.safetensors"])
 
             print(shlex.join(str(p) for p in command_builder))
             with open("sd-out.log", mode="a") as sd_out, open("sd-err.log", mode="a") as sd_err:
