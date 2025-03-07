@@ -263,6 +263,9 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
                                              " low score, bad score, average score, signature, watermark, username, blurry")
                 case "wai-nsfw-illustrious":
                     default_config["cfg-scale"] = 4.0
+                    default_config["sampling-step"] = 20
+                    default_config["sizeH"] = 1024
+                    default_config["sizeW"] = 1024
                     default_config["sampling-method"] = "euler_a"
 
             _params: list[str]
