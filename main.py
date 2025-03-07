@@ -25,7 +25,7 @@ from sqlite3 import connect
 from cloudscraper import create_scraper
 from truthbrush.api import USER_AGENT, BASE_URL, CLIENT_ID, CLIENT_SECRET, proxies
 
-DB = "proceed.sqlite"
+# DB = "proceed.sqlite"
 MODEL_BASE = Path(os.environ["MODEL_BASE"])
 IMAGE_OUT = Path(os.environ["IMAGE_OUT"])
 PROCEED_PICKLE = Path(os.environ["PROCEED_PICKLE"])
@@ -36,11 +36,11 @@ if not PROCEED_PICKLE.is_file():
 logger = logging.getLogger(__file__)
 logger.setLevel("WARNING" if getenv("LOG_LEVEL") is None else getenv("LOG_LEVEL"))
 # logging.basicConfig(level=getenv("LOG_LEVEL"))
-conn = connect(DB)
-cursor = conn.cursor()
-cursor.execute(R"CREATE TABLE IF NOT EXISTS proceed_table(id INTEGER PRIMARY KEY UNIQUE NOT NULL )")
-cursor.execute(R"CREATE UNIQUE INDEX IF NOT EXISTS proceed_index ON proceed_table(id)")
-cursor.close()
+# conn = connect(DB)
+# cursor = conn.cursor()
+# cursor.execute(R"CREATE TABLE IF NOT EXISTS proceed_table(id INTEGER PRIMARY KEY UNIQUE NOT NULL )")
+# cursor.execute(R"CREATE UNIQUE INDEX IF NOT EXISTS proceed_index ON proceed_table(id)")
+# cursor.close()
 
 
 class WritableApi(Api):

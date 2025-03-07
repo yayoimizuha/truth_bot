@@ -13,10 +13,10 @@ def remove_value_from_set_in_pickle(filepath, value_to_remove):
 
     # pickleファイルからsetを読み込む
     with open(filepath, 'rb') as f:
-        data_set = pickle.load(f)
+        data_set:set[int] = pickle.load(f)
 
     # 値を削除する
-    data_set.discard(value_to_remove)  # discardは値が存在しなくてもエラーにならない
+    data_set.remove(value_to_remove)  # discardは値が存在しなくてもエラーにならない
 
     # 更新されたsetをpickleファイルに保存する
     with open(filepath, 'wb') as f:
