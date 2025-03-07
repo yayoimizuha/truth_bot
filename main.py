@@ -322,12 +322,12 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
                         return {"error": f"failed while parsing sampling-method. :{e}"}
                 if param.startswith("sizeH="):
                     try:
-                        default_config["sizeH"] = max(32, min(1280, int(param.removeprefix("sizeH="))))
+                        default_config["sizeH"] = max(32, min(2560, int(param.removeprefix("sizeH="))))
                     except ValueError as e:
                         return {"error": f"failed while parsing sizeH. :{e}"}
                 if param.startswith("sizeW="):
                     try:
-                        default_config["sizeW"] = max(32, min(1280, int(param.removeprefix("sizeW="))))
+                        default_config["sizeW"] = max(32, min(2560, int(param.removeprefix("sizeW="))))
                     except ValueError as e:
                         return {"error": f"failed while parsing sizeW. :{e}"}
 
