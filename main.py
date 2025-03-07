@@ -420,7 +420,7 @@ with (open("ollama.log", mode="a") as ollama_log,
             # noinspection PyProtectedMember
             notifications = api._get(url="/v1/notifications", params=params)
             for notification in notifications:
-                # print(json.dumps(notification, ensure_ascii=False))
+                print(json.dumps(notification, ensure_ascii=False))
 
                 if not notification.get("status"):
                     continue
