@@ -35,6 +35,8 @@ if not PROCEED_PICKLE.is_file():
         pickle.dump({"XXXXX"}, f)
 logger = logging.getLogger(__file__)
 logger.setLevel("WARNING" if getenv("LOG_LEVEL") is None else getenv("LOG_LEVEL"))
+
+
 # logging.basicConfig(level=getenv("LOG_LEVEL"))
 # conn = connect(DB)
 # cursor = conn.cursor()
@@ -95,6 +97,7 @@ system_prompts = {"default": "TRUTH Socialはトランプ元大統領によっ�
                              "ユーザーの入力に対して親切かつ適切に、出来る限り応答してください。\n"
                              "ユーザーからの指示がない場合はMarkdown形式の装飾・強調は行わないでください。\n"
                              "ユーザーからの指示がない場合は数式をLaTeX形式を使わずに出力してください。\n"
+                             "明確に指示があった場合のみメンションを行ってください。\n"
                              "ユーザー名の後には空白「 」を入れてください。\n"
                              "必要があれば以下のユーザー情報を参考にしてください。\n"
                              "ユーザー名: @{user_name} ",
@@ -106,6 +109,7 @@ system_prompts = {"default": "TRUTH Socialはトランプ元大統領によっ�
                       "ユーザーの入力に対して親切かつ適切に、出来る限り応答してください。\n"
                       "ユーザーからの指示がない場合はMarkdown形式の装飾・強調は行わないでください。\n"
                       "ユーザーからの指示がない場合は数式をLaTeX形式を使わずに出力してください。\n"
+                      "明確に指示があった場合のみメンションを行ってください。\n"
                       "ユーザー名の後には空白「 」を入れてください。\n"
                       "必要があれば以下のユーザー情報を参考にしてください。\n"
                       "ユーザー名: @{user_name} \n"
@@ -420,7 +424,7 @@ with (open("ollama.log", mode="a") as ollama_log,
             # noinspection PyProtectedMember
             notifications = api._get(url="/v1/notifications", params=params)
             for notification in notifications:
-                print(json.dumps(notification, ensure_ascii=False))
+                # print(json.dumps(notification, ensure_ascii=False))
 
                 if not notification.get("status"):
                     continue
