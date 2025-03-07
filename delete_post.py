@@ -1,4 +1,6 @@
 import pickle
+import sys
+
 
 def remove_value_from_set_in_pickle(filepath, value_to_remove):
     """
@@ -24,7 +26,7 @@ def remove_value_from_set_in_pickle(filepath, value_to_remove):
 # 使用例
 if __name__ == '__main__':
     filepath = 'proceed.pickle'
-    value_to_remove = 5  # 削除したい値
+    value_to_remove = int(sys.argv[-1])
 
     remove_value_from_set_in_pickle(filepath, value_to_remove)
 
