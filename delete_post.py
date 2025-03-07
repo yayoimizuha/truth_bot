@@ -1,48 +1,31 @@
 import pickle
-import argparse
 
-PICKLE_FILE_PATH = "proceed.pickle"
-
-
-def remove_from_sets_in_pickle(number_to_remove):
+def remove_value_from_set_in_pickle(filepath, value_to_remove):
     """
-    "proceed.pickle" ファイルに保存された複数のintのsetから、指定された数を削除し、
-    変更をpickleファイルに保存します。
+    指定されたpickleファイルに保存されているsetから、指定された値を削除し、ファイルを更新します。
 
     Args:
-        number_to_remove (int): 削除する数。
+        filepath (str): pickleファイルのパス。
+        value_to_remove (int): 削除する値。
     """
 
-    try:
-        with open(PICKLE_FILE_PATH, 'rb') as file:
-            data = pickle.load(file)
-    except FileNotFoundError:
-        print(f"エラー: ファイル '{PICKLE_FILE_PATH}' が見つかりません。")
-        return
-    except Exception as e:
-        print(f"エラー: pickleファイルの読み込みに失敗しました: {e}")
-        return
+    # pickleファイルからsetを読み込む
+    with open(filepath, 'rb') as f:
+        data_set = pickle.load(f)
 
-    # 各setから指定された数を削除
-    for s in data:
-        if isinstance(s, set):  # set型であるか確認
-            s.discard(number_to_remove)
+    # 値を削除する
+    data_set.discard(value_to_remove)  # discardは値が存在しなくてもエラーにならない
 
-    # 変更をpickleファイルに保存
-    try:
-        with open(PICKLE_FILE_PATH, 'wb') as file:
-            pickle.dump(data, file)
-    except Exception as e:
-        print(f"エラー: pickleファイルへの書き込みに失敗しました: {e}")
-        return
+    # 更新されたsetをpickleファイルに保存する
+    with open(filepath, 'wb') as f:
+        pickle.dump(data_set, f)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="proceed.pickleファイルから指定された数を削除します。")
-    parser.add_argument("number_to_remove", type=int, help="削除する数")
+# 使用例
+if __name__ == '__main__':
+    filepath = 'proceed.pickle'
+    value_to_remove = 5  # 削除したい値
 
-    args = parser.parse_args()
+    remove_value_from_set_in_pickle(filepath, value_to_remove)
 
-    remove_from_sets_in_pickle(args.number_to_remove)
-
-    print(f"{PICKLE_FILE_PATH} から {args.number_to_remove} を削除しました。")
+    print(f"{filepath}から{value_to_remove}を削除しました。")
