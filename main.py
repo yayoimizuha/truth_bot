@@ -246,7 +246,7 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
                 "sizeH": 768,
                 "sizeW": 768,
                 "neg": None,
-                "skip-clip": 2
+                "clip-skip": 2
             }
             match model_name:
                 case "flux-dev":
