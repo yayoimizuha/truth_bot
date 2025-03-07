@@ -16,6 +16,7 @@ def remove_value_from_set_in_pickle(filepath, value_to_remove):
         data_set:set[int] = pickle.load(f)
 
     # 値を削除する
+    print(data_set)
     data_set.remove(value_to_remove)  # discardは値が存在しなくてもエラーにならない
 
     # 更新されたsetをpickleファイルに保存する
@@ -26,7 +27,7 @@ def remove_value_from_set_in_pickle(filepath, value_to_remove):
 # 使用例
 if __name__ == '__main__':
     filepath = 'proceed.pickle'
-    value_to_remove = int(sys.argv[-1])
+    value_to_remove = sys.argv[-1]
 
     remove_value_from_set_in_pickle(filepath, value_to_remove)
 
