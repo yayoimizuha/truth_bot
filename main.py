@@ -236,7 +236,7 @@ def parse_param(param_string: str, _prompts: ConversationsType, username: str) -
                 print(f"failed to generate text. :{e}")
                 return {"resp_text": f"failed to generate text. :{e}"}
 
-        case "flux-dev" | "sd-3.5-large" | "animagine-xl":
+        case "flux-dev" | "sd-3.5-large" | "animagine-xl" | "wai-nsfw-illustrious":
             default_config = {
                 "seed": 42,
                 "cfg-scale": 5.0,
