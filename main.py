@@ -136,7 +136,6 @@ system_prompts["grok-3-mini"] = system_prompts["grok-3"] = system_prompts["grok-
     "上記のすべてを**必ず**厳守してください。理解しましたか？\n"
 )
 
-
 def html_to_text(post_html: str) -> str:
     post_html = BeautifulSoup(post_html, "lxml")
     list(map(lambda mention: mention.decompose(), post_html.find_all("a", {"class": "mention"})))
