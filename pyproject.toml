@@ -9,5 +9,10 @@ dependencies = [
     "lxml",
     "litellm",
     "ollama",
-    "cloudscraper"
+    "cloudscraper",
+    "selenium",
+    "scrapling[all]",
+    "python-dotenv",
+    "python-box",
+    "Pillow"
 ]
