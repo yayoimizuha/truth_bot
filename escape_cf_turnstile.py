@@ -4,7 +4,7 @@ import sqlite3
 import time
 from io import BytesIO
 from os import environ
-from typing import Literal
+from typing import Literal, Optional
 from PIL import Image
 from box import Box
 from bs4 import BeautifulSoup
@@ -59,7 +59,8 @@ def login_action(page: Page):
     get_token(page)
 
 
-def fetch_in_browser(page: Page, url: str, method: Literal["GET", "POST"] = "GET", headers=None, body: dict = None):
+def fetch_in_browser(page: Page, url: str, method: Literal["GET", "POST"] = "GET", headers=None,
+                     body: Optional[dict] = None):
     try:
         page.evaluate(
             f"""async () => {{
@@ -103,7 +104,7 @@ def get_chat_history(page: Page, post_id: int):
     return [Box(history) for history in histories]
 
 
-def post_reply(page: Page, post_id: int, content: str, images: list[Image.Image] = None):
+def post_reply(page: Page, post_id: int, content: str, images: Optional[list[Image.Image]] = None):
     # getting sample images
     if images is None:
         images = []
@@ -208,7 +209,7 @@ def generate_chat_reply(histories: list[Box], **kwargs) -> str:
                     "name": message.account.username if message.account.username == \
                                                         environ["TRUTHSOCIAL_USERNAME"] else None,
                 } for message in histories
-            ]
+            ],
         )
         print(response)
         return response.choices[0].message.content
