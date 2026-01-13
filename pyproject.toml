@@ -14,5 +14,7 @@ dependencies = [
     "scrapling[all]",
     "python-dotenv",
     "python-box",
-    "Pillow"
+    "Pillow",
+    "markitdown[all]",
+    "openrouter"
 ]

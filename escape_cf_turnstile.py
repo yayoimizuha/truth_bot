@@ -4,11 +4,12 @@ import sqlite3
 import time
 from io import BytesIO
 from os import environ
-from typing import Literal, Optional
-
+from typing import Literal
 from PIL import Image
 from box import Box
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv, find_dotenv
+from openrouter import OpenRouter
 from scrapling.fetchers import StealthySession
 from playwright.sync_api import Page
 
@@ -89,15 +90,16 @@ def fetch_in_browser(page: Page, url: str, method: Literal["GET", "POST"] = "GET
 
 
 def get_chat_history(page: Page, post_id: int):
-    histories = [fetch_in_browser(page, url=f"https://truthsocial.com/api/v1/statuses/{post_id}")]
+    histories = []
     while True:
         _post_id: int = post_id
         ancestors = fetch_in_browser(page, url=f"https://truthsocial.com/api/v2/statuses/{_post_id}/context/ancestors")
-        histories.extend(ancestors)
+        histories = ancestors + histories
         if len(ancestors) != 20:
             break
         _post_id = int(ancestors[-1]["id"])
     # print(histories)
+    histories.append(fetch_in_browser(page, url=f"https://truthsocial.com/api/v1/statuses/{post_id}"))
     return [Box(history) for history in histories]
 
 
@@ -105,10 +107,10 @@ def post_reply(page: Page, post_id: int, content: str, images: list[Image.Image]
     # getting sample images
     if images is None:
         images = []
-        for _ in range(2):
-            image_byte = page.request.get("https://picsum.photos/800/600").body()
-            image = Image.open(BytesIO(image_byte), formats=["JPEG"]).convert("RGB")
-            images.append(image)
+        # for _ in range(2):
+        #     image_byte = page.request.get("https://picsum.photos/800/600").body()
+        #     image = Image.open(BytesIO(image_byte), formats=["JPEG"]).convert("RGB")
+        #     images.append(image)
 
     media_ids = []
     for image in images:
@@ -139,17 +141,114 @@ def post_reply(page: Page, post_id: int, content: str, images: list[Image.Image]
                            "poll": None,
                            "published": True,
                            "quote_id": None,
-                           "status": "やぁやぁ！！テストリプライだよ!" + "\n\n\n\n" + content,
+                           "status": content,
                            "title": "",
                            "visibility": "public",
                            "group_timeline_visible": False})
 
 
+def parse_content_html(content_html: str) -> str:
+    soup = BeautifulSoup(content_html, "lxml")
+
+    def _replace_a_links(_soup: BeautifulSoup):
+        for a_tag in _soup.find_all("a"):
+            href = a_tag.get("href", "")
+            text = a_tag.get_text()
+            new_text = f"\n[{text}]({href})\n"
+            a_tag.replace_with(new_text)
+
+    def _replace_br_with_newline(_soup: BeautifulSoup):
+        for br in soup.find_all("br"):
+            br.replace_with("\n")
+
+    def _replace_quote_blocks(_soup: BeautifulSoup):
+        for span in _soup.find_all("span", class_="quote-inline"):
+            text = span.get_text()
+            if text.startswith("RT: "):
+                url_part = text[4:].strip()
+                if "/statuses/" in url_part:
+                    status_id = url_part.split("/statuses/")[-1]
+                    new_text = f"quote:{status_id}"
+                    span.replace_with(new_text)
+
+    def _replace_mention_links(_soup: BeautifulSoup):
+        for span in _soup.find_all("span", class_="h-card"):
+            a_tag = span.find("a", class_="mention")
+            if a_tag:
+                mention_text = a_tag.get_text()
+                span.replace_with(f" {mention_text} ")
+
+    _replace_mention_links(soup)
+    _replace_quote_blocks(soup)
+    _replace_a_links(soup)
+    _replace_br_with_newline(soup)
+    # remove all html tags still remaining
+    return soup.get_text().strip("\u0020\r\n\t\u3000")
+
+
+def get_only_body_text(content: str) -> str:
+    contents = []
+    is_body = False
+    for row in content.split("\n"):
+        if not row.startswith("!") and not is_body:
+            is_body = True
+        if is_body:
+            contents.append(row)
+    return "\n".join(contents)
+
+
+def generate_chat_reply(histories: list[Box], **kwargs) -> str:
+    with OpenRouter(api_key=environ["OPENROUTER_API_KEY"]) as client:
+        response = client.chat.send(
+            model="meta-llama/llama-4-scout:floor",
+            messages=[
+                {
+                    "role": "assistant" if message.account.username == environ["TRUTHSOCIAL_USERNAME"] else "user",
+                    "content": get_only_body_text(parse_content_html(message.content)),
+                    "name": message.account.username if message.account.username == \
+                                                        environ["TRUTHSOCIAL_USERNAME"] else None,
+                } for message in histories
+            ]
+        )
+        print(response)
+        return response.choices[0].message.content
+
+
+def generate_reply_content(histories: list[Box]) -> tuple[str, list[Image.Image]] | None:
+    latest_message = parse_content_html(histories[-1].content)
+
+    mode = ""
+    args = dict()
+    for order, row in enumerate(latest_message.split("\n")):
+        if not row.startswith("!"):
+            break
+        split = row.split(":", maxsplit=1)
+        if order == 0 and len(split) == 1:
+            mode = split[0]
+        elif len(split) == 2:
+            args[split[0]] = split[1]
+
+    print(mode, args, get_only_body_text(latest_message))
+
+    match mode:
+        case "!image_gen":
+            # pass to image generation model
+            pass
+        case "!image_edit":
+            # pass to image editing model
+            pass
+        case _:
+            return generate_chat_reply(histories, **args), []
+
+
 def process_post(page: Page, post_id: int):
     print(f"==== getting chat history =[{post_id}]===")
     histories = get_chat_history(page, post_id)
-    # print(histories)
-    post_reply(page=page, post_id=post_id, content=histories[-1].content)
+
+    print(f"==== generating reply for post id={post_id} ====")
+    reply_content, images = generate_reply_content(histories)
+
+    post_reply(page=page, post_id=post_id, content=reply_content, images=images)
 
 
 def main(page: Page):
