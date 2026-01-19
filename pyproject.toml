@@ -16,5 +16,6 @@ dependencies = [
     "python-box",
     "Pillow",
     "markitdown[all]",
-    "openrouter"
+    "openrouter",
+    "pydantic-ai[openrouter]"
 ]

@@ -10,8 +10,10 @@ from box import Box
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv, find_dotenv
 from openrouter import OpenRouter
+from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 from scrapling.fetchers import StealthySession
-from playwright.sync_api import Page
+from playwright.sync_api import Page, Route
 
 load_dotenv(find_dotenv())
 
@@ -199,17 +201,31 @@ def get_only_body_text(content: str) -> str:
 
 
 def generate_chat_reply(histories: list[Box], **kwargs) -> str:
+    OpenRouterModel(
+        model_name="meta-llama/llama-4-scout:floor",
+        provider=OpenRouterProvider(
+            api_key=environ["OPENROUTER_API_KEY"],
+            app_url="https://truthsocial.com",
+            app_title="Truth Social AI bot"
+        ),
+    )
     with OpenRouter(api_key=environ["OPENROUTER_API_KEY"]) as client:
         response = client.chat.send(
             model="meta-llama/llama-4-scout:floor",
-            messages=[
-                {
-                    "role": "assistant" if message.account.username == environ["TRUTHSOCIAL_USERNAME"] else "user",
-                    "content": get_only_body_text(parse_content_html(message.content)),
-                    "name": message.account.username if message.account.username == \
-                                                        environ["TRUTHSOCIAL_USERNAME"] else None,
-                } for message in histories
-            ],
+            messages=[{
+                "role": "system",
+                "content": "You are a helpful and polite social media assistant. "
+                           "Generate concise and relevant replies based on the conversation history. "
+                           "Maintain a friendly and engaging tone."
+            }] + [
+                         {
+                             "role": "assistant" if message.account.username == environ[
+                                 "TRUTHSOCIAL_USERNAME"] else "user",
+                             "content": get_only_body_text(parse_content_html(message.content)),
+                             "name": message.account.username if message.account.username == \
+                                                                 environ["TRUTHSOCIAL_USERNAME"] else None,
+                         } for message in histories
+                     ],
         )
         print(response)
         return response.choices[0].message.content
@@ -272,7 +288,15 @@ def main(page: Page):
                     conn.execute("REPLACE INTO proceed(id,complete) VALUES(?,TRUE);", (int(notification.status.id),))
                 break
             if int(time.time() - _last_reload) > 180:
+                def _route_no_cache(route: Route):
+                    headers = route.request.headers.copy()
+                    headers["Cache-Control"] = "no-cache"
+                    headers['Pragma'] = 'no-cache'
+                    route.continue_(headers=headers)
+
+                page.route("**", _route_no_cache)
                 page.reload()
+                page.unroute("**", _route_no_cache)
                 _last_reload = time.time()
             conn.commit()
             time.sleep(10)
