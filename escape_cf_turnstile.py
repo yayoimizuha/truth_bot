@@ -2,6 +2,7 @@ import base64
 import json
 import sqlite3
 import time
+from abc import ABC
 from io import BytesIO
 from os import environ
 from typing import Literal, Optional
@@ -297,9 +298,12 @@ def main(page: Page):
                 page.route("**", _route_no_cache)
                 page.reload()
                 page.unroute("**", _route_no_cache)
+                page.evaluate("location.reload(true);")
                 _last_reload = time.time()
             conn.commit()
             time.sleep(10)
+
+
 
 
 sqlite3.connect("history.db").execute(
@@ -311,3 +315,4 @@ while True:
         print(f"token:{APP_TOKEN}")
         session.fetch(url="https://truthsocial.com", page_action=lambda page: main(page), solve_cloudflare=True)
     time.sleep(60)
+
