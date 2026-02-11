@@ -17,5 +17,8 @@ dependencies = [
     "Pillow",
     "markitdown[all]",
     "openrouter",
-    "pydantic-ai[openrouter]"
+    "pydantic-ai[openrouter,openai,bedrock]",
+    "filetype",
+    "aiohttp",
+    "aiolimiter"
 ]
