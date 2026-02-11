@@ -5,7 +5,7 @@ from typing import Optional
 from aiohttp import ClientSession
 from dotenv import load_dotenv, find_dotenv
 from pydantic_ai import Agent, ModelRequest, UserPromptPart, BinaryContent, TextPart, ModelResponse, ModelMessage, \
-    SystemPromptPart, VideoUrl, ImageUrl, RunContext
+    SystemPromptPart, VideoUrl, ImageUrl, RunContext, ToolReturn
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from escape_cf_browser import ContinuousBrowserClass
 from ts_worker import TruthSocialWorker, TruthPost, TruthMedia
@@ -30,13 +30,17 @@ agent = Agent(
 
 
 @agent.tool
-async def get_post_content_from_id(ctx: RunContext[TruthSocialWorker], post_id: int) -> str:
+async def get_post_content_from_id(ctx: RunContext[TruthSocialWorker], post_id: int) -> ToolReturn:
     """
     指定されたIDの投稿内容を取得します。
     ユーザーの投稿に 'quote:数字' が含まれている場合、その数字を post_id に指定することで引用元の内容を確認できます。
     """
     post = await ctx.deps.from_id(post_id)
-    return f"投稿内容(ID: {post.post_id}, 投稿者: {post.author}):\n{post.content}"
+    return ToolReturn(return_value=f"投稿内容(ID: {post.post_id}, 投稿者: {post.author})",
+                      content=[
+                          post.content,
+                          *[await truth_media_to_multimodal_input(media) for media in post.media_ids]
+                      ])
 
 
 async def main():
@@ -79,7 +83,7 @@ async def main():
                 message_history=history_message,
                 deps=worker
             )
-            print(agent_resp.all_messages())
+            print(agent_resp.new_messages())
             await worker.make_post(
                 content=agent_resp.output,
                 in_reply_to=post.post_id
