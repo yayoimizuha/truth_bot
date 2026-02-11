@@ -38,6 +38,7 @@ class ContinuousBrowserClass:
         # noinspection PyArgumentList
         self._session = AsyncStealthySession(headless=headless, humanize=True, solve_cloudflare=True)
         self._last_reloaded = time.time()
+        self._last_forced_reload = time.time()  # Track forced reload to avoid Turnstile
 
     async def __aenter__(self):
         await self._session.__aenter__()
@@ -57,7 +58,7 @@ class ContinuousBrowserClass:
         # noinspection PyProtectedMember
         if self._session._detect_cloudflare(
                 await self._fetch(method="GET", url="https://truthsocial.com/api/v1/truth/policies/pending")
-        ):
+        ) or time.time() - self._last_forced_reload > 1740:  # Force reload every 29 minutes (1740s) to avoid Turnstile
             if not is_init:
                 await self._page.close(reason="Cloudflare detected, reopening page to solve it.")
                 await self._session.close()
@@ -69,6 +70,7 @@ class ContinuousBrowserClass:
                 await self._page.goto("https://truthsocial.com/")
             # noinspection PyProtectedMember
             await self._session._cloudflare_solver(self._page)
+            self._last_forced_reload = time.time()  # Reset forced reload timer after solving Cloudflare
             time.sleep(5)
             await self._login()
 
