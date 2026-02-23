@@ -2,7 +2,7 @@
 name = "truth-bot"
 version = "0.1.0"
 description = "Add your description here"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "truthbrush",
     "beautifulsoup4",
@@ -20,5 +20,8 @@ dependencies = [
     "pydantic-ai[openrouter,openai,bedrock]",
     "filetype",
     "aiohttp",
-    "aiolimiter"
+    "aiolimiter",
+    "stable-diffusion-cpp-python",
+    "ollama",
+    "huggingface_hub[hf_xet]"
 ]

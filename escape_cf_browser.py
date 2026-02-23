@@ -50,9 +50,10 @@ class ContinuousBrowserClass:
     async def normalize_page_status(self, is_init: bool = False):
         if not self._page.url.startswith("https://truthsocial.com"):
             await self._page.goto("https://truthsocial.com/")
-            time.sleep(5)
+            await asyncio.sleep(5)
         if time.time() - self._last_reloaded > 180:
             await self._page.reload()
+            await asyncio.sleep(3)
             self._last_reloaded = time.time()
 
         # noinspection PyProtectedMember
@@ -71,8 +72,9 @@ class ContinuousBrowserClass:
             # noinspection PyProtectedMember
             await self._session._cloudflare_solver(self._page)
             self._last_forced_reload = time.time()  # Reset forced reload timer after solving Cloudflare
-            time.sleep(5)
+            await asyncio.sleep(5)
             await self._login()
+            await asyncio.sleep(3)
 
     async def _login(self):
         await self.normalize_page_status()

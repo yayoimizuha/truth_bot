@@ -25,7 +25,7 @@ class TruthMedia:
     url: str
 
     def mime_type(self):
-        return mimetypes.guess_file_type(self.url)[0]
+        return mimetypes.guess_type(self.url)[0]
 
 
 @dataclass
