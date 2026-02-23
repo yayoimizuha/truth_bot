@@ -1,6 +1,5 @@
 import asyncio
 import logging
-
 from dotenv import load_dotenv, find_dotenv
 from escape_cf_browser import ContinuousBrowserClass
 from post_parser import parse_llm_syntax
@@ -18,9 +17,9 @@ async def main():
     async with ContinuousBrowserClass(headless=True) as browser:
         worker = TruthSocialWorker(browser=browser)
         task_queue: set[asyncio.Task] = set()
-        notif_iter = worker.iterate_notifications().__aiter__()
+        notif_iter = worker.iterate_notifications()
 
-        fetch_task = asyncio.create_task(anext(notif_iter), name="fetch-next")
+        fetch_task = asyncio.create_task(notif_iter.__anext__(), name="fetch-next")
 
         while True:
             waitables: set[asyncio.Task] = set(task_queue)
@@ -69,7 +68,7 @@ async def main():
                         ))
 
                 fetch_task = asyncio.create_task(
-                    anext(notif_iter), name="fetch-next"
+                    notif_iter.__anext__(), name="fetch-next"
                 )
 
 
