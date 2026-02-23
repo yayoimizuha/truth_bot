@@ -1,3 +1,4 @@
+import json
 import re
 
 from bs4 import BeautifulSoup, PageElement, Tag, NavigableString
@@ -28,27 +29,39 @@ def post_parser(_text: str) -> str:
     return recursive_extractor(_html).strip(" \n")
 
 
-import json
-import re
 
-import json
-import re
+# ── ボットリプライ用マーカー定数 ──────────────────────────────
+BOT_ERROR_MARKER = "[BOT_ERROR]"
 
 
 def parse_llm_syntax(text: str) -> dict:
     """
-    全角スペース、全角＠、およびヘッダ内の全角コロン・イコールに対応したパーサー。
+    投稿テキストを解析し、コマンド構文・ボットマーカーを識別する。
+
+    全角スペース、全角＠、およびヘッダ内の全角コロン・イコールに対応。
+    加えて、ボット自身が投稿した [BOT_ERROR] マーカーも検出する。
+
+    Returns (いずれも dict):
+        ボットエラー投稿の場合:
+            {"type": "bot_error", "content": "エラー本文"}
+        ユーザーコマンド投稿の場合:
+            {"type": "naive" | "image_gen" | ..., "options": {...}, "prompt": "..."}
+        コマンドなし（通常テキスト）の場合:
+            {"type": "naive"}
     """
 
-    # 1. 正規表現の定義
+    # ── 1. ボットエラーマーカーの検出 ─────────────────────────
+    if text.startswith(BOT_ERROR_MARKER):
+        return {"type": "bot_error", "content": text[len(BOT_ERROR_MARKER):].strip()}
+
+    # ── 2. ユーザーコマンド構文の検出 ─────────────────────────
     # ^                 : 行頭
-    # \s* : 先頭の空白（全角・半角・タブ含む）を許容
-    # (?: ... )* : メンションブロックの繰り返し（0回以上）
+    # \s*               : 先頭の空白（全角・半角・タブ含む）を許容
+    # (?: ... )*        : メンションブロックの繰り返し（0回以上）
     #   [@＠]           : 半角@ または 全角＠
     #   \S+             : 空白以外の文字（ユーザー名）
-    #   \s+             : 区切り空白（全角・半角対応）※メンションと[]の間には必ず空白が必要
+    #   \s+             : 区切り空白（全角・半角対応）
     # \[([^\]]+)\]      : [] で囲まれたヘッダ部分
-    #                     (※[]自体は構文として半角を強制する場合が多いですが、必要なら全角［］も対応可)
 
     pattern = r'^\s*(?:[@＠]\S+\s+)*\[([^\]]+)\]'
 
@@ -58,19 +71,18 @@ def parse_llm_syntax(text: str) -> dict:
     if not match:
         return {"type": "naive"}
 
-    # 2. データの抽出
+    # データの抽出
     raw_header_content = match.group(1)
 
     # プロンプト本文の抽出（マッチした箇所の後ろすべて）
-    # 前方のメンションや全角スペースは自動的に除外されます
     prompt_part = text[match.end():]
 
-    # 3. ヘッダ内部の正規化（揺らぎ吸収）
+    # ヘッダ内部の正規化（揺らぎ吸収）
     # 日本語入力では内部の区切り文字も全角になりがちなので、半角に置換して処理しやすくする
     # 例: "gen：seed＝123" -> "gen:seed=123"
     normalized_header = raw_header_content.replace('：', ':').replace('＝', '=')
 
-    # 4. Type と Options の解析
+    # Type と Options の解析
     parts = normalized_header.split(':')
     msg_type = parts[0]
 
@@ -108,7 +120,9 @@ if __name__ == '__main__':
         """　＠mizuha_bot　[edit]　背景を削除""",
         """@mizuha_bot [image_gen：seed＝123：step＝30] 高画質""",
         """＠user1　＠user2　[naive]　こんにちは""",
-        """これはテストです　[重要]　なポイント"""
+        """これはテストです　[重要]　なポイント""",
+        # ボットマーカーのテストケース
+        """[BOT_ERROR] Traceback (most recent call last): ...""",
     ]
 
 

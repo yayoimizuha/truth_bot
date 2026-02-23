@@ -6,6 +6,7 @@ from pydantic_ai import Agent, ModelRequest, UserPromptPart, BinaryContent, Text
     SystemPromptPart, RunContext, ToolReturn
 from pydantic_ai.models.bedrock import BedrockConverseModel
 
+from post_parser import parse_llm_syntax
 from ts_worker import TruthSocialWorker, TruthPost, TruthMedia
 from sub_agents import AgentClass
 
@@ -62,14 +63,26 @@ class NaiveAgent(AgentClass):
 
         for hist in history:
             if hist.author == environ["TRUTHSOCIAL_USERNAME"]:
-                history_message.append(ModelResponse(
-                    parts=[
-                        TextPart(content=hist.content),
-                        # noinspection PyTypeChecker
-                        *[await truth_media_to_multimodal_input(media) for media in hist.media_ids]
-                    ]
-                ))
+                # ボット自身のリプライ: マーカーを解析し、エラー投稿は除外する
+                parsed_reply = parse_llm_syntax(hist.content)
+
+                if parsed_reply["type"] == "bot_error":
+                    # エラーリプライは空のレスポンスとして扱う
+                    history_message.append(ModelResponse(parts=[TextPart(content=" ")]))
+                else:
+                    history_message.append(ModelResponse(
+                        parts=[
+                            TextPart(content=hist.content),
+                            # noinspection PyTypeChecker
+                            *[await truth_media_to_multimodal_input(media) for media in hist.media_ids]
+                        ]
+                    ))
             else:
+                # ユーザー投稿が連続する場合（間のボットエラーが除外された等）、
+                # ダミーの ModelResponse を挿入して ModelRequest の連続を防ぐ
+                if history_message and isinstance(history_message[-1], ModelRequest):
+                    history_message.append(ModelResponse(parts=[TextPart(content=" ")]))
+
                 history_message.append(ModelRequest(
                     parts=[
                         # noinspection PyTypeChecker

@@ -4,6 +4,7 @@ from typing import Optional
 
 from PIL import Image
 
+from post_parser import BOT_ERROR_MARKER
 from ts_worker import TruthSocialWorker, TruthPost
 
 
@@ -26,6 +27,16 @@ class AgentClass(ABC):
             quote_id=quote_id,
             media=media,
         )
+
+    async def create_error_post(
+        self,
+        error_text: str,
+        in_reply_to: int,
+    ) -> TruthPost:
+        """[BOT_ERROR] マーカー付きでエラーリプライを投稿する。
+        会話履歴の再構築時に通常の応答とは区別され、除外される。"""
+        content = f"{BOT_ERROR_MARKER} {error_text}"
+        return await self.create_post(content=content, in_reply_to=in_reply_to)
 
     @abstractmethod
     async def run(

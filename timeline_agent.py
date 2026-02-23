@@ -43,6 +43,9 @@ async def main():
                 post = fetch_task.result()
                 parsed = parse_llm_syntax(post.content)
                 match parsed["type"]:
+                    case "bot_error":
+                        # ボット自身のエラーマーカー付き投稿が通知として来た場合は無視
+                        logger.debug("Ignoring bot error post %s", post.post_id)
                     case "naive":
                         task_queue.add(asyncio.create_task(
                             NaiveAgent(worker).run(post, parsed),
