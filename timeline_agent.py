@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from dotenv import load_dotenv, find_dotenv
 from escape_cf_browser import ContinuousBrowserClass
@@ -10,28 +11,71 @@ from sub_agents.image_edit_agent import ImageEditAgent
 
 load_dotenv(find_dotenv())
 
+logger = logging.getLogger(__name__)
+
 
 async def main():
-    async with (ContinuousBrowserClass(headless=True) as browser):
+    async with ContinuousBrowserClass(headless=True) as browser:
         worker = TruthSocialWorker(browser=browser)
-        async for post in worker.iterate_notifications():
-            ancestors = await worker.get_ancestors(post)
-            *history, user_message = ancestors
-            parsed = parse_llm_syntax(user_message.content)
+        task_queue: set[asyncio.Task] = set()
+        notif_iter = worker.iterate_notifications().__aiter__()
 
-            match parsed["type"]:
-                case "naive":
-                    await NaiveAgent(worker).run(user_message, history, parsed)
-                case "image_gen":
-                    await ImageGenAgent(worker).run(user_message, history, parsed)
-                case "image_edit":
-                    await ImageEditAgent(worker).run(user_message, history, parsed)
-                case _:
-                    await worker.make_post(
-                        content="不明なコマンドです。",
-                        in_reply_to=post.post_id,
-                    )
+        fetch_task = asyncio.create_task(anext(notif_iter), name="fetch-next")
+
+        while True:
+            waitables: set[asyncio.Task] = set(task_queue)
+            waitables.add(fetch_task)
+
+            done, _ = await asyncio.wait(
+                waitables, return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # 完了した処理タスクを回収
+            for task in done - {fetch_task}:
+                task_queue.discard(task)
+                exc = task.exception()
+                if exc is not None:
+                    logger.error("Task %s failed: %s", task.get_name(), exc, exc_info=exc)
+                else:
+                    logger.info("Task %s completed.", task.get_name())
+
+            # 通知取得タスクが完了した場合
+            if fetch_task in done:
+                post = fetch_task.result()
+                parsed = parse_llm_syntax(post.content)
+                match parsed["type"]:
+                    case "naive":
+                        task_queue.add(asyncio.create_task(
+                            NaiveAgent(worker).run(post, parsed),
+                            name=f"naive-{post.post_id}",
+                        ))
+                    case "image_gen":
+                        task_queue.add(asyncio.create_task(
+                            ImageGenAgent(worker).run(post, parsed),
+                            name=f"image_gen-{post.post_id}",
+                        ))
+                    case "image_edit":
+                        task_queue.add(asyncio.create_task(
+                            ImageEditAgent(worker).run(post, parsed),
+                            name=f"image_edit-{post.post_id}",
+                        ))
+                    case _:
+                        task_queue.add(asyncio.create_task(
+                            worker.make_post(
+                                content="不明なコマンドです。",
+                                in_reply_to=post.post_id,
+                            ),
+                            name=f"unknown-{post.post_id}",
+                        ))
+
+                fetch_task = asyncio.create_task(
+                    anext(notif_iter), name="fetch-next"
+                )
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
     asyncio.run(main())

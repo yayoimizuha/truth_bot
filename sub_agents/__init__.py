@@ -31,13 +31,11 @@ class AgentClass(ABC):
     async def run(
         self,
         post: TruthPost,
-        history: list[TruthPost],
         parsed: dict,
     ) -> None:
         """
         通知への返信処理を行う。
-        post     : 返信対象の投稿
-        history  : post より前の祖先スレッド (oldest → newest)
-        parsed   : parse_llm_syntax() の返り値
+        post   : 返信対象の投稿
+        parsed : parse_llm_syntax() の返り値
         """
         ...

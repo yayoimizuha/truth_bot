@@ -59,12 +59,14 @@ class TruthSocialWorker:
                         quote_id: Optional[int] = None,
                         media: list[Image.Image | bytes | PathLike] = None) -> TruthPost:
         media = media or []
+        # noinspection PyTypeChecker
+        uploaded: list[TruthMedia] = await asyncio.gather(*[self.upload_media(m) for m in media])
         cont = await self._browser.post(
             url="https://truthsocial.com/api/v1/statuses",
             content_type="application/json",
             body={"content_type": "text/plain",
                   "in_reply_to_id": str(in_reply_to) if in_reply_to is not None else "",
-                  "media_ids": asyncio.gather(*[self.upload_media(m) for m in media]),
+                  "media_ids": [str(m.media_id) for m in uploaded],
                   "poll": None,
                   "published": True,
                   "quote_id": str(quote_id) if quote_id is not None else None,
@@ -146,7 +148,6 @@ class TruthSocialWorker:
                         )
                         conn.commit()
                         yield await self.from_id(post_id)
-                    await asyncio.sleep(5)
 
     async def from_id(self, post_id: int) -> TruthPost:
         cont = Box(json.loads(await self._browser.get(url=f"https://truthsocial.com/api/v1/statuses/{post_id}")))
