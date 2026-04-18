@@ -1,0 +1,8 @@
+__pycache__
+.idea/**
+.jbeval/**
+.venv/**
+user_data_dir/**
+outdated/**
+history.db
+.env

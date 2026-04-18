@@ -21,7 +21,10 @@ dependencies = [
     "filetype",
     "aiohttp",
     "aiolimiter",
-    "stable-diffusion-cpp-python",
+    # sys_platform == "linux"
+    "stable-diffusion-cpp-python; sys_platform == 'linux'",
     "ollama",
-    "huggingface_hub[hf_xet]"
+    "huggingface_hub[hf_xet]",
+    "fastapi[standard]",
+    "camoufox"
 ]
