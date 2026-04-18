@@ -4,27 +4,14 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "truthbrush",
     "beautifulsoup4",
-    "lxml",
-    "litellm",
-    "ollama",
-    "cloudscraper",
-    "selenium",
-    "scrapling[all]",
-    "python-dotenv",
-    "python-box",
-    "Pillow",
-    "markitdown[all]",
-    "openrouter",
-    "pydantic-ai[openrouter,openai,bedrock]",
-    "filetype",
-    "aiohttp",
-    "aiolimiter",
-    # sys_platform == "linux"
-    "stable-diffusion-cpp-python; sys_platform == 'linux'",
-    "ollama",
-    "huggingface_hub[hf_xet]",
+    "camoufox",
     "fastapi[standard]",
-    "camoufox"
+    "httpx",
+    "lxml",
+    "pydantic-ai[openrouter,openai,bedrock]",
+    "python-dotenv",
+    "scrapling[all]",
+    "stable-diffusion-cpp-python; sys_platform == 'linux'",
+    "pynvml; sys_platform == 'linux'",
 ]

@@ -1,17 +1,40 @@
 import asyncio
 import base64
 import json
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from os import environ
-from typing import Optional
 
 from dotenv import find_dotenv, load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
 from scrapling.fetchers import StealthySession
 
 load_dotenv(find_dotenv())
+SUPPRESSED_ACCESS_PATH = "/api/v1/alerts?category=mentions&follow_mentions=false"
+
+
+class AccessPathFilter(logging.Filter):
+    def __init__(self, suppressed_path: str):
+        super().__init__()
+        self._suppressed_path = suppressed_path
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not self._suppressed_path:
+            return True
+        message = record.getMessage()
+        return self._suppressed_path not in message
+
+
+def configure_access_log_filters() -> None:
+    logger = logging.getLogger("uvicorn.access")
+    if any(isinstance(filter_, AccessPathFilter) for filter_ in logger.filters):
+        return
+    logger.addFilter(AccessPathFilter(SUPPRESSED_ACCESS_PATH))
+
+
+configure_access_log_filters()
 
 
 class BrowserProxy:
