@@ -26,7 +26,9 @@ def parse_command(text: str) -> CommandEnvelope | None:
             continue
         if not in_body:
             if ":" not in line:
-                raise CommandParseError(f"invalid header line: {line}")
+                in_body = True
+                prompt_lines.append(line)
+                continue
             key, value = line.split(":", 1)
             headers[key.strip()] = value.strip()
         else:

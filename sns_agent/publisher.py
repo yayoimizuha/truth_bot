@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 
@@ -7,6 +8,7 @@ from .schemas import AgentResponse, NormalizedPost, PublishResult
 from .truthsocial import TruthSocialClient
 
 MENTION_RE = re.compile(r"@([A-Za-z0-9_.-]+)")
+logger = logging.getLogger(__name__)
 
 
 class Publisher:
@@ -41,6 +43,13 @@ class Publisher:
             )
             media_ids.append(uploaded.media_id)
         status_text = self.build_status_text(response, target_post)
+        logger.info(
+            "sending message in_reply_to_id=%s text=%r images=%d video=%s",
+            target_post.post_id,
+            status_text,
+            len(response.images),
+            response.video is not None,
+        )
         return await self._social.publish_reply(
             text=status_text,
             in_reply_to_id=target_post.post_id,

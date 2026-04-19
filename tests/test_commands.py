@@ -17,9 +17,18 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(request.size, "1024x1024")
         self.assertEqual(request.prompt, "hello")
 
-    def test_parse_invalid_header(self):
+    def test_parse_image_command_without_blank_line_before_prompt(self):
+        command = parse_command("/image\nmodel: gpt-image-1-mini\nhello")
+        self.assertIsNotNone(command)
+        request = to_image_request(command)
+        self.assertEqual(request.model, "gpt-image-1-mini")
+        self.assertEqual(request.prompt, "hello")
+
+    def test_unknown_header_is_still_rejected(self):
+        command = parse_command("/image\nfoo: 2\n\nhello")
+        self.assertIsNotNone(command)
         with self.assertRaises(CommandParseError):
-            parse_command("/image\ncount=2\n\nhello")
+            to_image_request(command)
 
     def test_reject_too_many_images(self):
         command = parse_command("/image\ncount: 5\n\nhello")
@@ -28,6 +37,12 @@ class CommandTests(unittest.TestCase):
 
 
 class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _mock_async_client(mock_client_cls):
+        mock_client = mock_client_cls.return_value
+        mock_client.aclose = AsyncMock()
+        return mock_client
+
     async def test_api_backend_uses_openai_compatible_images_api_by_default(self):
         with (
             patch.dict(
@@ -41,22 +56,97 @@ class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
                 clear=True,
             ),
             patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls,
+            patch("sns_agent.media.AsyncOpenAI") as mock_openai_cls,
         ):
-            mock_client = mock_client_cls.return_value
+            self._mock_async_client(mock_client_cls)
+            mock_openai = mock_openai_cls.return_value
             response = MagicMock()
-            response.json.return_value = {"data": [{"b64_json": "aGVsbG8="}]}
-            response.raise_for_status.return_value = None
-            mock_client.post = AsyncMock(return_value=response)
+            response.data = [MagicMock(b64_json="aGVsbG8=", url=None)]
+            mock_openai.images.generate = AsyncMock(return_value=response)
 
             generator = ImageGenerator()
             images = await generator.generate(ImageGenerationRequest(prompt="hi"))
+            await generator.aclose()
 
             self.assertEqual(len(images), 1)
             self.assertEqual(images[0].content, b"hello")
-            mock_client.post.assert_awaited_once()
-            _, kwargs = mock_client.post.await_args
-            self.assertEqual(kwargs["json"]["response_format"], "b64_json")
-            self.assertEqual(kwargs["json"]["model"], "test-model")
+            mock_openai.images.generate.assert_awaited_once()
+            _, kwargs = mock_openai.images.generate.await_args
+            self.assertEqual(kwargs["model"], "test-model")
+            self.assertNotIn("response_format", kwargs)
+            self.assertEqual(kwargs["extra_body"], None)
+
+    async def test_api_backend_surfaces_error_response_body(self):
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "IMAGE_BACKEND": "api",
+                    "IMAGE_API_KEY": "test-key",
+                    "IMAGE_API_URL": "https://example.invalid/v1/images/generations",
+                    "IMAGE_MODEL": "test-model",
+                },
+                clear=True,
+            ),
+            patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls,
+            patch("sns_agent.media.AsyncOpenAI") as mock_openai_cls,
+        ):
+            self._mock_async_client(mock_client_cls)
+            mock_openai = mock_openai_cls.return_value
+            response = MagicMock()
+            response.text = '{"error":{"message":"bad request"}}'
+
+            class FakeStatusError(Exception):
+                def __init__(self):
+                    super().__init__("bad request")
+                    self.status_code = 400
+                    self.response = response
+
+            error = FakeStatusError()
+            mock_openai.images.generate = AsyncMock(side_effect=error)
+
+            generator = ImageGenerator()
+            with patch("sns_agent.media.ImageGenerator._is_retryable_openai_error", return_value=False):
+                with self.assertRaisesRegex(RuntimeError, "400.*bad request"):
+                    await generator.generate(ImageGenerationRequest(prompt="hi"))
+            await generator.aclose()
+
+    async def test_api_backend_retries_retryable_errors_with_backoff(self):
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "IMAGE_BACKEND": "api",
+                    "IMAGE_API_KEY": "test-key",
+                    "IMAGE_MODEL": "test-model",
+                    "IMAGE_API_MAX_RETRIES": "2",
+                    "IMAGE_API_RETRY_BASE_SECONDS": "0.5",
+                    "IMAGE_API_RETRY_MAX_SECONDS": "1.0",
+                },
+                clear=True,
+            ),
+            patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls,
+            patch("sns_agent.media.AsyncOpenAI") as mock_openai_cls,
+            patch("sns_agent.media.asyncio.sleep", new_callable=AsyncMock) as sleep_mock,
+        ):
+            self._mock_async_client(mock_client_cls)
+            mock_openai = mock_openai_cls.return_value
+            retryable_error = RuntimeError("transient")
+            success = MagicMock()
+            success.data = [MagicMock(b64_json="aGVsbG8=", url=None)]
+            mock_openai.images.generate = AsyncMock(side_effect=[retryable_error, success])
+
+            generator = ImageGenerator()
+            with patch(
+                "sns_agent.media.ImageGenerator._is_retryable_openai_error",
+                side_effect=lambda exc: exc is retryable_error,
+            ):
+                images = await generator.generate(ImageGenerationRequest(prompt="hi"))
+            await generator.aclose()
+
+            self.assertEqual(len(images), 1)
+            self.assertEqual(mock_openai.images.generate.await_count, 2)
+            sleep_mock.assert_awaited_once_with(0.5)
 
     async def test_openrouter_backend_alias_uses_api_backend(self):
         with (
@@ -72,7 +162,7 @@ class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls,
         ):
-            mock_client = mock_client_cls.return_value
+            mock_client = self._mock_async_client(mock_client_cls)
             response = MagicMock()
             response.json.return_value = {
                 "choices": [
@@ -88,6 +178,7 @@ class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
 
             generator = ImageGenerator()
             images = await generator.generate(ImageGenerationRequest(prompt="hi"))
+            await generator.aclose()
 
             self.assertEqual(generator._backend, "api")
             self.assertEqual(len(images), 1)
@@ -114,10 +205,12 @@ class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
                     "STABLE_DIFFUSION_CPP_BINARY": "sd",
                 },
                 clear=True,
-            ), patch("sns_agent.media.httpx.AsyncClient"):
+            ), patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls:
+                self._mock_async_client(mock_client_cls)
                 generator = ImageGenerator()
                 self.assertEqual(generator._resolve_local_model_name(None), "sdxl")
                 self.assertEqual(generator._resolve_local_model_module_path("sdxl"), model_file)
+                await generator.aclose()
 
     async def test_local_backend_rejects_model_not_in_image_model_allowlist(self):
         with TemporaryDirectory() as temp_dir:
@@ -132,10 +225,12 @@ class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
                     "IMAGE_MODELS_DIR": str(model_dir),
                 },
                 clear=True,
-            ), patch("sns_agent.media.httpx.AsyncClient"):
+            ), patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls:
+                self._mock_async_client(mock_client_cls)
                 generator = ImageGenerator()
                 with self.assertRaises(RuntimeError):
                     generator._resolve_local_model_name("other-model")
+                await generator.aclose()
 
     async def test_local_backend_loads_module_and_runs_cleanup(self):
         with TemporaryDirectory() as temp_dir:
@@ -162,9 +257,11 @@ class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
                     "IMAGE_MODELS_DIR": str(model_dir),
                 },
                 clear=True,
-            ), patch("sns_agent.media.httpx.AsyncClient"):
+            ), patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls:
+                self._mock_async_client(mock_client_cls)
                 generator = ImageGenerator()
                 images = await generator.generate(ImageGenerationRequest(prompt="hi"))
+                await generator.aclose()
 
             self.assertEqual(len(images), 1)
             self.assertEqual(images[0].source, "sdxl")
@@ -180,11 +277,13 @@ class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
                 },
                 clear=True,
             ),
-            patch("sns_agent.media.httpx.AsyncClient"),
+            patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls,
         ):
+            self._mock_async_client(mock_client_cls)
             generator = ImageGenerator()
             with self.assertRaises(RuntimeError):
                 await generator.generate(ImageGenerationRequest(prompt="hi"))
+            await generator.aclose()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from ts_hook_server import BrowserProxy
+from timeline_agent import AccessPathFilter
 
 
 class BrowserProxyTests(unittest.TestCase):
@@ -59,6 +60,16 @@ class BrowserProxyTests(unittest.TestCase):
 
         self.assertEqual(page.evaluate.call_count, 2)
         wait_mock.assert_called_once_with()
+
+    def test_timeline_access_path_filter_suppresses_alert_logs(self):
+        filter_ = AccessPathFilter("/api/v1/alerts")
+        allowed = MagicMock()
+        allowed.getMessage.return_value = "GET /api/v1/statuses/123"
+        suppressed = MagicMock()
+        suppressed.getMessage.return_value = "GET /api/v1/alerts?category=mentions"
+
+        self.assertTrue(filter_.filter(allowed))
+        self.assertFalse(filter_.filter(suppressed))
 
 
 if __name__ == "__main__":

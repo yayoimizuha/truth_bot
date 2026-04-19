@@ -10,6 +10,7 @@ from .schemas import MediaAttachment, NormalizedPost
 MENTION_RE = re.compile(r"@([A-Za-z0-9_.-]+)")
 URL_RE = re.compile(r"https?://[^\s]+")
 TRUTH_HANDLE_RE = re.compile(r"/@([A-Za-z0-9_.-]+)")
+LEADING_MENTION_RE = re.compile(r"^@([A-Za-z0-9_.-]+)\s*")
 
 
 def _render_node(node: Any) -> str:
@@ -26,7 +27,18 @@ def _render_node(node: Any) -> str:
     return "".join(_render_node(child) for child in node.children)
 
 
-def normalize_text(html: str) -> tuple[str, str, list[str]]:
+def _split_leading_mentions(text: str) -> tuple[list[str], str]:
+    mentions: list[str] = []
+    remaining = text
+    while True:
+        match = LEADING_MENTION_RE.match(remaining)
+        if match is None:
+            return mentions, remaining.strip()
+        mentions.append(match.group(1))
+        remaining = remaining[match.end():]
+
+
+def normalize_text(html: str) -> tuple[str, list[str]]:
     soup = BeautifulSoup(html or "", "lxml")
     urls: list[str] = []
 
@@ -44,27 +56,12 @@ def normalize_text(html: str) -> tuple[str, str, list[str]]:
     plain_text = "\n".join(line for line in lines if line).strip()
 
     expanded_urls = list(dict.fromkeys(urls + URL_RE.findall(plain_text)))
-    remaining = plain_text
-    while True:
-        match = re.match(r"^@([A-Za-z0-9_.-]+)\s*", remaining)
-        if not match:
-            break
-        remaining = remaining[match.end():]
-    command_text = remaining.strip()
-    return plain_text, command_text, expanded_urls
+    return plain_text, expanded_urls
 
 
 def normalize_status(payload: dict[str, Any]) -> NormalizedPost:
-    plain_text, command_text, expanded_urls = normalize_text(payload.get("content") or "")
-    leading_mentions = []
-    remaining = plain_text
-    while True:
-        match = re.match(r"^@([A-Za-z0-9_.-]+)\s*", remaining)
-        if not match:
-            break
-        leading_mentions.append(match.group(1))
-        remaining = remaining[match.end():]
-    command_text = remaining.strip()
+    plain_text, expanded_urls = normalize_text(payload.get("content") or "")
+    leading_mentions, command_text = _split_leading_mentions(plain_text)
     inline_mentions = [m.group(1) for m in MENTION_RE.finditer(command_text)]
     llm_text = command_text
 

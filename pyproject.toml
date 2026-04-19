@@ -9,6 +9,7 @@ dependencies = [
     "fastapi[standard]",
     "httpx",
     "lxml",
+    "openai",
     "pydantic-ai[openrouter,openai,bedrock]",
     "python-dotenv",
     "scrapling[all]",

@@ -5,15 +5,21 @@ import base64
 import gc
 import importlib.util
 import inspect
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import httpx
+from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
+
+from image_models import coerce_generated_images
 
 from .gpu_tasks import GPUTaskLimiter
 from .schemas import GeneratedImage, GeneratedVideo, ImageGenerationRequest, VideoGenerationRequest
+
+logger = logging.getLogger(__name__)
 
 
 class ImageGenerator:
@@ -22,7 +28,7 @@ class ImageGenerator:
         self._backend = "api" if configured_backend == "openrouter" else configured_backend
         self._api_style = os.getenv("IMAGE_API_STYLE", "openai-images").lower()
         self._api_url = os.getenv("IMAGE_API_URL")
-        self._api_key = os.getenv("IMAGE_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+        self._api_key = self._resolve_api_key()
         self._configured_models = self._parse_model_list(os.getenv("IMAGE_MODEL"))
         self._legacy_model = os.getenv("IMAGE_API_MODEL") or os.getenv(
             "IMAGE_OPENROUTER_MODEL",
@@ -30,7 +36,21 @@ class ImageGenerator:
         )
         self._image_models_dir = Path(os.getenv("IMAGE_MODELS_DIR", "image_models"))
         self._http_client = httpx.AsyncClient(timeout=120.0)
+        self._openai_client = self._build_openai_client()
         self._gpu_task_limiter = gpu_task_limiter
+        self._api_retry_max_retries = max(0, int(os.getenv("IMAGE_API_MAX_RETRIES", "3")))
+        self._api_retry_base_seconds = max(0.0, float(os.getenv("IMAGE_API_RETRY_BASE_SECONDS", "1.0")))
+        self._api_retry_max_seconds = max(
+            self._api_retry_base_seconds,
+            float(os.getenv("IMAGE_API_RETRY_MAX_SECONDS", "8.0")),
+        )
+
+    async def aclose(self) -> None:
+        await self._http_client.aclose()
+        if self._openai_client is not None:
+            maybe_awaitable = self._openai_client.close()
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
 
     async def generate(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
         if not self._is_enabled():
@@ -60,43 +80,36 @@ class ImageGenerator:
         return await self._generate_with_openai_compatible_api(request)
 
     async def _generate_with_openai_compatible_api(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
-        api_url = self._api_url or "https://api.openai.com/v1/images/generations"
+        if self._openai_client is None:
+            raise RuntimeError("OpenAI image client is not configured")
         model_name = self._resolve_api_model_name(request.model)
         payload: dict[str, Any] = {
             "model": model_name,
             "prompt": request.prompt,
             "n": request.count,
-            "response_format": "b64_json",
         }
         if request.size:
             payload["size"] = request.size
+        extra_body: dict[str, Any] = {}
         if request.negative:
-            payload["negative_prompt"] = request.negative
+            extra_body["negative_prompt"] = request.negative
         if request.seed is not None:
-            payload["seed"] = request.seed
-        response = await self._http_client.post(
-            api_url,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        response.raise_for_status()
-        response_json = response.json()
+            extra_body["seed"] = request.seed
+
+        response = await self._call_openai_images_generate(model_name, payload, extra_body or None)
         images: list[GeneratedImage] = []
-        for index, item in enumerate(response_json.get("data") or [], start=1):
-            if (item or {}).get("b64_json"):
+        for index, item in enumerate(response.data or [], start=1):
+            if item.b64_json:
                 images.append(
                     GeneratedImage(
-                        content=base64.b64decode(item["b64_json"]),
+                        content=base64.b64decode(item.b64_json),
                         filename=f"image-{index}.png",
                         source=model_name,
                     )
                 )
                 continue
-            if (item or {}).get("url"):
-                binary_response = await self._http_client.get(item["url"])
+            if item.url:
+                binary_response = await self._http_client.get(item.url)
                 binary_response.raise_for_status()
                 images.append(
                     GeneratedImage(
@@ -106,6 +119,35 @@ class ImageGenerator:
                     )
                 )
         return images[:4]
+
+    async def _call_openai_images_generate(
+        self,
+        model_name: str,
+        payload: dict[str, Any],
+        extra_body: dict[str, Any] | None,
+    ):
+        for attempt in range(self._api_retry_max_retries + 1):
+            try:
+                return await self._openai_client.images.generate(
+                    **payload,
+                    extra_body=extra_body,
+                )
+            except Exception as exc:
+                if not self._is_retryable_openai_error(exc) or attempt >= self._api_retry_max_retries:
+                    raise self._normalize_openai_error(exc, model_name) from exc
+                delay = self._backoff_delay(
+                    attempt,
+                    base_seconds=self._api_retry_base_seconds,
+                    max_seconds=self._api_retry_max_seconds,
+                )
+                logger.warning(
+                    "image generation retrying model=%s attempt=%d delay=%.2fs error=%s",
+                    model_name,
+                    attempt + 1,
+                    delay,
+                    exc,
+                )
+                await asyncio.sleep(delay)
 
     async def _generate_with_openrouter_chat(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
         api_url = self._api_url or "https://openrouter.ai/api/v1/chat/completions"
@@ -130,7 +172,7 @@ class ImageGenerator:
                 json=payload,
             )
         )
-        response.raise_for_status()
+        self._raise_for_status_with_body(response, f"image generation failed for model '{model_name}'")
         response_json = response.json()
         message = ((response_json.get("choices") or [{}])[0]).get("message") or {}
         images: list[GeneratedImage] = []
@@ -201,7 +243,10 @@ class ImageGenerator:
             result = await generate(request)
         else:
             result = await asyncio.to_thread(generate, request)
-        return self._normalize_local_model_result(result, model_name)
+        try:
+            return coerce_generated_images(result, source=model_name, filename_prefix=model_name)
+        except TypeError as exc:
+            raise RuntimeError(f"local image model '{model_name}' returned invalid images: {exc}") from exc
 
     async def _cleanup_local_model_module(self, module: Any) -> None:
         cleanup = getattr(module, "cleanup", None)
@@ -230,30 +275,6 @@ class ImageGenerator:
             sys.modules.pop(module_name, None)
         gc.collect()
         self._best_effort_release_vram()
-
-    def _normalize_local_model_result(self, result: Any, model_name: str) -> list[GeneratedImage]:
-        if not isinstance(result, list):
-            raise RuntimeError(f"local image model '{model_name}' must return list[GeneratedImage]")
-        normalized: list[GeneratedImage] = []
-        for index, item in enumerate(result, start=1):
-            if isinstance(item, GeneratedImage):
-                if item.source == "unknown":
-                    item.source = model_name
-                normalized.append(item)
-                continue
-            if isinstance(item, bytes):
-                normalized.append(
-                    GeneratedImage(
-                        content=item,
-                        filename=f"{model_name}-{index}.png",
-                        source=model_name,
-                    )
-                )
-                continue
-            raise RuntimeError(
-                f"local image model '{model_name}' returned unsupported item type: {type(item).__name__}"
-            )
-        return normalized
 
     @staticmethod
     def _best_effort_release_vram() -> None:
@@ -324,12 +345,75 @@ class ImageGenerator:
             return []
         return [model.strip() for model in raw_models.split(",") if model.strip()]
 
+    def _build_openai_client(self) -> AsyncOpenAI | None:
+        if self._api_style != "openai-images" or not self._api_key:
+            return None
+        base_url = self._resolve_openai_base_url(self._api_url)
+        return AsyncOpenAI(
+            api_key=self._api_key,
+            base_url=base_url,
+            timeout=120.0,
+            max_retries=0,
+        )
+
+    def _resolve_api_key(self) -> str | None:
+        if self._api_style == "openai-images":
+            return os.getenv("IMAGE_API_KEY") or os.getenv("OPENAI_API_KEY")
+        return os.getenv("IMAGE_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+
+    @staticmethod
+    def _resolve_openai_base_url(api_url: str | None) -> str | None:
+        if not api_url:
+            return None
+        suffix = "/images/generations"
+        if api_url.endswith(suffix):
+            return api_url[: -len(suffix)]
+        return api_url
+
+    @staticmethod
+    def _is_retryable_openai_error(exc: Exception) -> bool:
+        if isinstance(exc, (APIConnectionError, APITimeoutError, RateLimitError)):
+            return True
+        if isinstance(exc, APIStatusError):
+            return exc.status_code in {408, 409, 429} or exc.status_code >= 500
+        return False
+
+    @staticmethod
+    def _normalize_openai_error(exc: Exception, model_name: str) -> RuntimeError:
+        status_code = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        if status_code is not None:
+            body = response.text.strip() if response is not None and getattr(response, "text", None) else ""
+            detail = body or str(exc)
+            return RuntimeError(f"image generation failed for model '{model_name}': {status_code} {detail}")
+        if isinstance(exc, APIStatusError):
+            body = exc.response.text.strip() if exc.response is not None else ""
+            detail = body or str(exc)
+            return RuntimeError(f"image generation failed for model '{model_name}': {exc.status_code} {detail}")
+        return RuntimeError(f"image generation failed for model '{model_name}': {exc}")
+
+    @staticmethod
+    def _backoff_delay(attempt: int, *, base_seconds: float, max_seconds: float) -> float:
+        return min(max_seconds, base_seconds * (2 ** attempt))
+
+    @staticmethod
+    def _raise_for_status_with_body(response: httpx.Response, context: str) -> None:
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            body = response.text.strip()
+            detail = body if body else "<empty response body>"
+            raise RuntimeError(f"{context}: {response.status_code} {detail}") from exc
+
 
 class VideoGenerator:
     def __init__(self):
         self._api_url = os.getenv("VIDEO_API_URL")
         self._api_key = os.getenv("VIDEO_API_KEY")
         self._http_client = httpx.AsyncClient(timeout=120.0)
+
+    async def aclose(self) -> None:
+        await self._http_client.aclose()
 
     async def generate(self, request: VideoGenerationRequest) -> GeneratedVideo:
         if not self._api_url or not self._api_key:
