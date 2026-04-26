@@ -17,6 +17,7 @@ class MediaAttachment:
     url: str
     preview_url: str | None = None
     mime_type: str | None = None
+    source: str = "truthsocial"
 
 
 @dataclass(slots=True)

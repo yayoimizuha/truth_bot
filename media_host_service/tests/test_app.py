@@ -139,6 +139,53 @@ class MediaHostServiceTests(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json()["detail"], "only image and video files are supported")
 
+    def test_upload_requires_auth_only_when_password_configured(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+            "os.environ",
+            {"MEDIA_HOST_STORAGE_DIR": temp_dir, "MEDIA_HOST_UPLOAD_PASSWORD": "secret"},
+            clear=False,
+        ):
+            client = TestClient(app)
+
+            unauthorized = client.post(
+                "/media",
+                files=[("files", ("cat.png", self._png_bytes((255, 0, 0)), "image/png"))],
+            )
+            self.assertEqual(unauthorized.status_code, 401)
+
+            authorized = client.post(
+                "/media",
+                files=[("files", ("cat.png", self._png_bytes((255, 0, 0)), "image/png"))],
+                auth=("upload", "secret"),
+            )
+            self.assertEqual(authorized.status_code, 200)
+
+            page_id = authorized.json()["page_id"]
+            page_response = client.get(f"/m/{page_id}")
+            self.assertEqual(page_response.status_code, 200)
+
+    def test_page_json_returns_media_items(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+            "os.environ",
+            {"MEDIA_HOST_STORAGE_DIR": temp_dir},
+            clear=False,
+        ):
+            client = TestClient(app)
+            response = client.post(
+                "/media",
+                files=[("files", ("clip.mp4", self._mp4_bytes((0, 0, 255)), "video/mp4"))],
+            )
+            self.assertEqual(response.status_code, 200)
+
+            page_id = response.json()["page_id"]
+            payload = client.get(f"/api/pages/{page_id}").json()
+            self.assertEqual(payload["page_id"], page_id)
+            self.assertIn("/m/", payload["public_url"])
+            self.assertIn("/og/", payload["og_image_url"])
+            self.assertEqual(len(payload["items"]), 1)
+            self.assertEqual(payload["items"][0]["kind"], "video")
+            self.assertIn("poster_url", payload["items"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

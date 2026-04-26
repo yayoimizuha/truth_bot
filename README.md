@@ -70,6 +70,7 @@ STATE_DB_PATH=history.db
 
 # Optional media hosting service
 MEDIA_HOST_API_URL=http://127.0.0.1:8010
+MEDIA_HOST_UPLOAD_PASSWORD=shared_upload_password
 ```
 
 画像生成は `IMAGE_BACKEND` で切り替えます。`IMAGE_MODEL` は API / ローカル共通で使用可能モデル一覧をカンマ区切りで指定し、先頭がデフォルトになります。`/image_gen`、`/image_edit`、通常会話中の tool で `model` を明示した場合も、この一覧に含まれている必要があります。`IMAGE_MODEL` が未設定なら画像機能は無効です。
@@ -175,6 +176,9 @@ LLM_VISION_PATH=/home/tomokazu/models/Qwen-Image-Edit-2511/mmproj-F16.gguf
 | `NOTIFICATION_RETRY_MAX_SECONDS` | 任意 | `600.0` | 通知再試行バックオフの上限（秒） |
 | `SNS_MAX_POST_LENGTH` | 任意 | `5000` | 投稿テキストの最大長。超えた場合は末尾を省略して送信 |
 | `MEDIA_HOST_API_URL` | 任意 | なし | 設定時、生成画像・動画は別サービスにアップロードされ、返信には公開URLを含めます |
+| `MEDIA_HOST_UPLOAD_PASSWORD` | 任意 | なし | 設定時、`media_host_service` の `POST /media` に HTTP Basic 認証で同じ共有パスワードを送ります。公開ページや配信ファイルの閲覧には影響しません |
+
+`media_host_service` は公開ページ `/m/{page_id}` とは別に、内容を JSON で返す `/api/pages/{page_id}` も提供します。SNS 側はこの JSON を使って hosted 画像・動画ポスターを会話履歴や `/image_edit` の参照メディアに展開します。
 
 #### 画像生成共通
 

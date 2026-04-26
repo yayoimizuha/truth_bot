@@ -5,6 +5,7 @@ services:
     container_name: media-host
     environment:
       MEDIA_HOST_STORAGE_DIR: /data
+      MEDIA_HOST_UPLOAD_PASSWORD: ${MEDIA_HOST_UPLOAD_PASSWORD:-}
     ports:
       - "8010:8010"
     volumes:

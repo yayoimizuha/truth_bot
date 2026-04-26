@@ -10,8 +10,9 @@ import shutil
 from pathlib import Path
 
 import av
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 
@@ -36,6 +37,10 @@ def build_public_url(request: Request, page_id: str) -> str:
 
 def build_og_image_url(request: Request, page_id: str) -> str:
     return str(request.url_for("og_image", page_id=page_id))
+
+
+def upload_password() -> str:
+    return os.getenv("MEDIA_HOST_UPLOAD_PASSWORD", "")
 
 
 def is_supported_mime_type(mime_type: str) -> bool:
@@ -138,10 +143,37 @@ def render_og_image(images: list[Image.Image]) -> bytes:
 
 
 app = FastAPI()
+basic_auth = HTTPBasic(auto_error=False)
+
+
+def require_upload_auth(credentials: HTTPBasicCredentials | None) -> None:
+    password = upload_password()
+    if not password:
+        return
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="upload authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    username_ok = secrets.compare_digest(credentials.username, "upload")
+    password_ok = secrets.compare_digest(credentials.password, password)
+    if username_ok and password_ok:
+        return
+    raise HTTPException(
+        status_code=401,
+        detail="invalid upload credentials",
+        headers={"WWW-Authenticate": "Basic"},
+    )
 
 
 @app.post("/media")
-async def create_media_page(request: Request, files: list[UploadFile] = File(...)):
+async def create_media_page(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    credentials: HTTPBasicCredentials | None = Depends(basic_auth),
+):
+    require_upload_auth(credentials)
     if not files:
         raise HTTPException(status_code=400, detail="at least one file is required")
     if len(files) > 4:
@@ -191,6 +223,17 @@ async def create_media_page(request: Request, files: list[UploadFile] = File(...
     return {
         "page_id": page_id,
         "public_url": build_public_url(request, page_id),
+    }
+
+
+@app.get("/api/pages/{page_id}")
+async def media_page_json(request: Request, page_id: str):
+    metadata = load_metadata(page_id)
+    return {
+        "page_id": page_id,
+        "public_url": build_public_url(request, page_id),
+        "og_image_url": build_og_image_url(request, page_id),
+        "items": metadata.get("items") or [],
     }
 
 

@@ -6,6 +6,7 @@ import re
 
 import httpx
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.messages import ImageUrl
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
@@ -140,30 +141,38 @@ class LLMResponder:
         return agent
 
     @staticmethod
-    def _build_prompt(chain: list[NormalizedPost], target_post: NormalizedPost) -> str:
-        lines = [
-            "以下は親投稿列のみを並べた会話履歴です。古い順です。",
-            "",
-        ]
+    def _build_prompt(chain: list[NormalizedPost], target_post: NormalizedPost) -> list[str | ImageUrl]:
+        parts: list[str | ImageUrl] = ["以下は親投稿列のみを並べた会話履歴です。古い順です。\n\n"]
         for index, post in enumerate(chain, start=1):
             speaker = "assistant" if post.author_handle == os.getenv("TRUTHSOCIAL_USERNAME") else "user"
             media_note = ""
             if post.media:
                 media_note = f" [media: {', '.join(item.media_type for item in post.media)}]"
-            lines.extend(
+            parts.append(f"[{index}] {speaker} @{post.author_handle}{media_note}\n{post.llm_text or '(empty)'}\n")
+            parts.extend(LLMResponder._media_prompt_parts(post))
+            parts.append("\n")
+        parts.append(
+            "\n".join(
                 [
-                    f"[{index}] {speaker} @{post.author_handle}{media_note}",
-                    post.llm_text or "(empty)",
-                    "",
+                    "最後の投稿に対する返信を1件だけ生成してください。",
+                    f"対象投稿ID: {target_post.post_id}",
                 ]
             )
-        lines.extend(
-            [
-                "最後の投稿に対する返信を1件だけ生成してください。",
-                f"対象投稿ID: {target_post.post_id}",
-            ]
         )
-        return "\n".join(lines)
+        return parts
+
+    @staticmethod
+    def _media_prompt_parts(post: NormalizedPost) -> list[ImageUrl]:
+        parts: list[ImageUrl] = []
+        for media in post.media:
+            if media.source != "media_host":
+                continue
+            if (media.mime_type or "").startswith("image/") and media.url:
+                parts.append(ImageUrl(url=media.url, media_type=media.mime_type, identifier=media.media_id))
+                continue
+            if media.preview_url:
+                parts.append(ImageUrl(url=media.preview_url, media_type="image/png", identifier=media.media_id))
+        return parts
 
     @staticmethod
     def _build_model_settings() -> OpenRouterModelSettings | None:

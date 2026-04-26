@@ -12,6 +12,7 @@ class MediaHostClient:
         configured_base_url = (base_url or os.getenv("MEDIA_HOST_API_URL") or "").rstrip("/")
         self._base_url = configured_base_url
         self._client = httpx.AsyncClient(base_url=configured_base_url, timeout=timeout) if configured_base_url else None
+        self._auth = self._build_auth()
 
     @property
     def enabled(self) -> bool:
@@ -31,10 +32,17 @@ class MediaHostClient:
             ("files", (image.filename, image.content, image.mime_type))
             for image in images
         ]
-        response = await self._client.post("/media", files=files)
+        response = await self._client.post("/media", files=files, auth=self._auth)
         response.raise_for_status()
         payload = response.json()
         return HostedMediaPage(
             page_id=str(payload["page_id"]),
             public_url=str(payload["public_url"]),
         )
+
+    @staticmethod
+    def _build_auth() -> tuple[str, str] | None:
+        password = os.getenv("MEDIA_HOST_UPLOAD_PASSWORD") or ""
+        if not password:
+            return None
+        return ("upload", password)
