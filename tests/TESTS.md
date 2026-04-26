@@ -1,12 +1,13 @@
 # Test Overview
 
-このディレクトリには、Truth Bot の主要コンポーネントごとのユニットテストがあります。
+このディレクトリには、Truth Bot 本体の主要コンポーネントごとのユニットテストがあります。
 
 ## `test_commands.py`
 
-`/image` コマンドのパースと画像生成まわりの基本動作を確認します。
+`/image_gen` / `/image_edit` コマンドのパースと画像生成まわりの基本動作を確認します。
 
-- `/image` ヘッダの正常パース
+- `/image_gen` ヘッダの正常パース
+- `/image_edit` ヘッダの正常パース
 - 不正ヘッダ行の拒否
 - `count > 4` の拒否
 - API バックエンドで OpenAI 互換 Images API 形式のリクエストになること
@@ -75,4 +76,10 @@ python -m unittest tests.test_commands tests.test_publisher tests.test_normalize
 
 ```bash
 python -m unittest tests.test_service
+```
+
+`media_host_service/` のテストはサービス配下に分離されています。サービス側の依存だけで実行する場合は、`media_host_service/` 直下で次を使ってください。
+
+```bash
+uv run python -m unittest discover -s tests
 ```

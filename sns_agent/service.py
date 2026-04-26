@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import inspect
 import logging
 import os
 import time
@@ -12,7 +13,7 @@ from .media import ImageGenerator, VideoGenerator
 from .proxy_client import ProxyHttpClient
 from .publisher import Publisher
 from .responder import LLMResponder
-from .schemas import AgentResponse, NotificationItem
+from .schemas import AgentResponse, NotificationItem, NormalizedPost, ReferenceImage
 from .state_store import StateStore
 from .truthsocial import TruthSocialClient
 
@@ -66,6 +67,11 @@ class AgentService:
         await self._image_generator.aclose()
         await self._video_generator.aclose()
         await self._responder.aclose()
+        publisher_close = getattr(self._publisher, "aclose", None)
+        if publisher_close is not None:
+            result = publisher_close()
+            if inspect.isawaitable(result):
+                await result
         await self._proxy.aclose()
 
     async def run_forever(self) -> None:
@@ -125,7 +131,7 @@ class AgentService:
         try:
             command = parse_command(target_post.command_text)
             if command is not None:
-                response = await self._handle_command(command)
+                response = await self._handle_command(command, target_post, chain)
             else:
                 response = await self._responder.respond(chain, target_post)
             await self._publisher.publish(response, target_post)
@@ -173,9 +179,13 @@ class AgentService:
     def _notification_backoff_delay(self, attempt: int) -> float:
         return min(self._notification_retry_max_seconds, self._notification_retry_base_seconds * (2 ** attempt))
 
-    async def _handle_command(self, command) -> AgentResponse:
-        if command.name == "image":
+    async def _handle_command(self, command, target_post: NormalizedPost, chain: list[NormalizedPost]) -> AgentResponse:
+        if command.name in {"image_gen", "image_edit"}:
             request = to_image_request(command)
+            if command.name == "image_edit":
+                request.reference_images = await self._collect_reference_images(target_post, chain)
+                if not request.reference_images:
+                    raise CommandParseError("/image_edit requires at least one attached image in the target post or conversation")
             images = await self._image_generator.generate(request)
             return AgentResponse(text="", images=images)
         if command.name == "video":
@@ -183,3 +193,32 @@ class AgentService:
             video = await self._video_generator.generate(request)
             return AgentResponse(text="", video=video)
         raise CommandParseError(f"unsupported command: /{command.name}")
+
+    async def _collect_reference_images(
+        self,
+        target_post: NormalizedPost,
+        chain: list[NormalizedPost],
+    ) -> list[ReferenceImage]:
+        posts: list[NormalizedPost] = [target_post]
+        posts.extend(post for post in reversed(chain[:-1]) if post.post_id != target_post.post_id)
+        images: list[ReferenceImage] = []
+        seen_media_ids: set[str] = set()
+        for post in posts:
+            for media in post.media:
+                if media.media_id in seen_media_ids:
+                    continue
+                is_image = (media.mime_type or "").startswith("image/") or media.media_type == "image"
+                if not is_image:
+                    continue
+                content = await self._social.download_media(media)
+                mime_type = media.mime_type or "image/png"
+                images.append(
+                    ReferenceImage(
+                        content=content,
+                        filename=self._social.infer_media_filename(media),
+                        mime_type=mime_type,
+                        source_url=media.url,
+                    )
+                )
+                seen_media_ids.add(media.media_id)
+        return images

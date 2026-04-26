@@ -10,9 +10,10 @@ dependencies = [
     "httpx",
     "lxml",
     "openai",
+    "pillow",
     "pydantic-ai[openrouter,openai,bedrock]",
     "python-dotenv",
     "scrapling[all]",
-    "stable-diffusion-cpp-python; sys_platform == 'linux'",
+    # "stable-diffusion-cpp-python; sys_platform == 'linux'",
     "pynvml; sys_platform == 'linux'",
 ]

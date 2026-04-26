@@ -7,6 +7,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import secrets
 import sys
 from pathlib import Path
 from typing import Any
@@ -53,26 +54,25 @@ class ImageGenerator:
                 await maybe_awaitable
 
     async def generate(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
-        if not self._is_enabled():
-            raise RuntimeError("image generation is disabled; configure IMAGE_BACKEND, IMAGE_MODEL, and backend settings")
-        if self._backend == "stable-diffusion-cpp":
-            if self._gpu_task_limiter is None:
-                return await self._generate_with_local_model_module(request)
-            return await self._gpu_task_limiter.run(lambda: self._generate_with_local_model_module(request))
-        if self._backend == "api" and self._api_key:
+        backend = self._resolve_generation_backend()
+        if backend == "stable-diffusion-cpp":
+            return await self._generate_with_local_backend(request)
+        if backend == "api":
             images = await self._generate_with_api(request)
             if images:
                 return images
         raise RuntimeError("image generation backend returned no images")
 
-    def _is_enabled(self) -> bool:
+    def _resolve_generation_backend(self) -> str:
         if not self._configured_models:
-            return False
+            raise RuntimeError("image generation is disabled; configure IMAGE_BACKEND, IMAGE_MODEL, and backend settings")
         if self._backend == "api":
-            return bool(self._api_key)
+            if not self._api_key:
+                raise RuntimeError("image generation is disabled; configure IMAGE_BACKEND, IMAGE_MODEL, and backend settings")
+            return self._backend
         if self._backend == "stable-diffusion-cpp":
-            return True
-        return False
+            return self._backend
+        raise RuntimeError(f"unsupported image backend: {self._backend}")
 
     async def _generate_with_api(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
         if self._api_style == "openrouter-chat":
@@ -199,17 +199,18 @@ class ImageGenerator:
                 raise RuntimeError(f"local image model '{model_name}' produced no images")
             return generated[:4]
         finally:
-            await self._cleanup_local_model_module(module)
-            self._unload_local_model_module(module)
+            await self._teardown_local_model_module(module)
+
+    async def _generate_with_local_backend(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
+        if self._gpu_task_limiter is None:
+            return await self._generate_with_local_model_module(request)
+        return await self._gpu_task_limiter.run(lambda: self._generate_with_local_model_module(request))
 
     def _resolve_api_model_name(self, requested_model: str | None) -> str:
         return self._resolve_model_name(requested_model, backend_label="api")
 
     def _resolve_local_model_name(self, requested_model: str | None) -> str:
-        model_name = self._resolve_model_name(requested_model, backend_label="stable-diffusion.cpp")
-        if not self._configured_models and requested_model is None:
-            raise RuntimeError("IMAGE_MODEL is required for stable-diffusion.cpp backend")
-        return model_name
+        return self._resolve_model_name(requested_model, backend_label="stable-diffusion.cpp")
 
     def _resolve_model_name(self, requested_model: str | None, *, backend_label: str) -> str:
         if requested_model:
@@ -248,19 +249,21 @@ class ImageGenerator:
         except TypeError as exc:
             raise RuntimeError(f"local image model '{model_name}' returned invalid images: {exc}") from exc
 
-    async def _cleanup_local_model_module(self, module: Any) -> None:
+    async def _teardown_local_model_module(self, module: Any) -> None:
         cleanup = getattr(module, "cleanup", None)
-        if cleanup is None:
+        try:
+            if cleanup is not None:
+                if inspect.iscoroutinefunction(cleanup):
+                    await cleanup()
+                else:
+                    await asyncio.to_thread(cleanup)
+        finally:
+            self._unload_local_model_module(module)
+            gc.collect()
             self._best_effort_release_vram()
-            return
-        if inspect.iscoroutinefunction(cleanup):
-            await cleanup()
-        else:
-            await asyncio.to_thread(cleanup)
-        self._best_effort_release_vram()
 
     def _load_local_model_module(self, model_name: str, module_path: Path) -> Any:
-        qualified_name = f"image_models.{model_name}"
+        qualified_name = f"image_models.{model_name}_{secrets.token_hex(8)}"
         spec = importlib.util.spec_from_file_location(qualified_name, module_path)
         if spec is None or spec.loader is None:
             raise RuntimeError(f"failed to load local image model module: {module_path}")
@@ -273,8 +276,6 @@ class ImageGenerator:
         module_name = getattr(module, "__name__", None)
         if module_name:
             sys.modules.pop(module_name, None)
-        gc.collect()
-        self._best_effort_release_vram()
 
     @staticmethod
     def _best_effort_release_vram() -> None:

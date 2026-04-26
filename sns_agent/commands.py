@@ -14,7 +14,7 @@ def parse_command(text: str) -> CommandEnvelope | None:
 
     lines = stripped.splitlines()
     command_name = lines[0].strip()
-    if command_name not in {"/image", "/video"}:
+    if command_name not in {"/image_gen", "/image_edit", "/video"}:
         return None
 
     headers: dict[str, str] = {}
@@ -51,12 +51,22 @@ def _parse_float(headers: dict[str, str], key: str) -> float | None:
 
 
 def to_image_request(command: CommandEnvelope) -> ImageGenerationRequest:
-    if command.name != "image":
-        raise CommandParseError("command is not /image")
+    if command.name not in {"image_gen", "image_edit"}:
+        raise CommandParseError("command is not /image_gen or /image_edit")
     if not command.prompt:
-        raise CommandParseError("prompt is required for /image")
+        raise CommandParseError(f"prompt is required for /{command.name}")
 
-    allowed = {"model", "size", "steps", "cfg_scale", "seed", "count", "negative", "sampler"}
+    allowed = {
+        "model",
+        "size",
+        "steps",
+        "cfg_scale",
+        "flow_shift",
+        "seed",
+        "count",
+        "negative",
+        "sampler",
+    }
     unknown = sorted(set(command.headers) - allowed)
     if unknown:
         raise CommandParseError(f"unknown headers: {', '.join(unknown)}")
@@ -71,6 +81,7 @@ def to_image_request(command: CommandEnvelope) -> ImageGenerationRequest:
         size=command.headers.get("size"),
         steps=_parse_int(command.headers, "steps"),
         cfg_scale=_parse_float(command.headers, "cfg_scale"),
+        flow_shift=_parse_float(command.headers, "flow_shift"),
         seed=_parse_int(command.headers, "seed"),
         count=count,
         negative=command.headers.get("negative"),

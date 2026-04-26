@@ -1,0 +1,12 @@
+services:
+  media-host:
+    build:
+      context: .
+    container_name: media-host
+    environment:
+      MEDIA_HOST_STORAGE_DIR: /data
+    ports:
+      - "8010:8010"
+    volumes:
+      - ../media_host_storage:/data
+    restart: unless-stopped

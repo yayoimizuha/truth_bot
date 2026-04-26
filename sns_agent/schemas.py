@@ -54,10 +54,20 @@ class ImageGenerationRequest:
     size: str | None = None
     steps: int | None = None
     cfg_scale: float | None = None
+    flow_shift: float | None = None
     seed: int | None = None
     count: int = 1
     negative: str | None = None
     sampler: str | None = None
+    reference_images: list["ReferenceImage"] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ReferenceImage:
+    content: bytes
+    filename: str
+    mime_type: str
+    source_url: str | None = None
 
 
 @dataclass(slots=True)
@@ -105,6 +115,12 @@ class PublishResult:
     status_id: str
     raw_response: dict[str, Any]
     published_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass(slots=True)
+class HostedMediaPage:
+    page_id: str
+    public_url: str
 
 
 @dataclass(slots=True)

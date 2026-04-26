@@ -9,29 +9,39 @@ from sns_agent.schemas import ImageGenerationRequest
 
 
 class CommandTests(unittest.TestCase):
-    def test_parse_image_command(self):
-        command = parse_command("/image\ncount: 2\nsize: 1024x1024\n\nhello")
+    def test_parse_image_gen_command(self):
+        command = parse_command("/image_gen\ncount: 2\nsize: 1024x1024\n\nhello")
         self.assertIsNotNone(command)
         request = to_image_request(command)
         self.assertEqual(request.count, 2)
         self.assertEqual(request.size, "1024x1024")
         self.assertEqual(request.prompt, "hello")
 
-    def test_parse_image_command_without_blank_line_before_prompt(self):
-        command = parse_command("/image\nmodel: gpt-image-1-mini\nhello")
+    def test_parse_image_gen_command_without_blank_line_before_prompt(self):
+        command = parse_command("/image_gen\nmodel: gpt-image-1-mini\nhello")
         self.assertIsNotNone(command)
         request = to_image_request(command)
         self.assertEqual(request.model, "gpt-image-1-mini")
         self.assertEqual(request.prompt, "hello")
 
+    def test_parse_image_edit_command(self):
+        command = parse_command(
+            "/image_edit\nmodel: qwen_image_edit\nflow_shift: 3\n\nadd flowers"
+        )
+        self.assertIsNotNone(command)
+        request = to_image_request(command)
+        self.assertEqual(request.model, "qwen_image_edit")
+        self.assertEqual(request.flow_shift, 3.0)
+        self.assertEqual(request.prompt, "add flowers")
+
     def test_unknown_header_is_still_rejected(self):
-        command = parse_command("/image\nfoo: 2\n\nhello")
+        command = parse_command("/image_gen\nfoo: 2\n\nhello")
         self.assertIsNotNone(command)
         with self.assertRaises(CommandParseError):
             to_image_request(command)
 
     def test_reject_too_many_images(self):
-        command = parse_command("/image\ncount: 5\n\nhello")
+        command = parse_command("/image_gen\ncount: 5\n\nhello")
         with self.assertRaises(CommandParseError):
             to_image_request(command)
 
@@ -266,6 +276,75 @@ class ImageGeneratorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(images), 1)
             self.assertEqual(images[0].source, "sdxl")
             self.assertEqual(marker_file.read_text(encoding="utf-8"), "done")
+
+    async def test_local_backend_teardown_runs_cleanup_and_unloads_module_once(self):
+        with TemporaryDirectory() as temp_dir:
+            model_dir = Path(temp_dir)
+            model_file = model_dir / "sdxl.py"
+            model_file.write_text(
+                "from pathlib import Path\n"
+                "COUNTER = 0\n"
+                "def generate(request):\n"
+                "    return [b'img']\n"
+                "def cleanup():\n"
+                "    global COUNTER\n"
+                "    COUNTER += 1\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "IMAGE_BACKEND": "stable-diffusion-cpp",
+                    "IMAGE_MODEL": "sdxl",
+                    "IMAGE_MODELS_DIR": str(model_dir),
+                },
+                clear=True,
+            ), patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls:
+                self._mock_async_client(mock_client_cls)
+                generator = ImageGenerator()
+                module = generator._load_local_model_module("sdxl", model_file)
+                module_name = module.__name__
+                with (
+                    patch("sns_agent.media.gc.collect") as gc_collect,
+                    patch.object(generator, "_best_effort_release_vram") as release_vram,
+                ):
+                    await generator._teardown_local_model_module(module)
+                self.assertEqual(module.COUNTER, 1)
+                self.assertNotIn(module_name, __import__("sys").modules)
+                gc_collect.assert_called_once()
+                release_vram.assert_called_once()
+                await generator.aclose()
+
+    async def test_local_backend_loads_same_model_module_with_unique_names(self):
+        with TemporaryDirectory() as temp_dir:
+            model_dir = Path(temp_dir)
+            model_file = model_dir / "sdxl.py"
+            model_file.write_text(
+                "def generate(request):\n"
+                "    return [b'img']\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "IMAGE_BACKEND": "stable-diffusion-cpp",
+                    "IMAGE_MODEL": "sdxl",
+                    "IMAGE_MODELS_DIR": str(model_dir),
+                },
+                clear=True,
+            ), patch("sns_agent.media.httpx.AsyncClient") as mock_client_cls:
+                self._mock_async_client(mock_client_cls)
+                generator = ImageGenerator()
+                module_one = generator._load_local_model_module("sdxl", model_file)
+                module_two = generator._load_local_model_module("sdxl", model_file)
+                try:
+                    self.assertNotEqual(module_one.__name__, module_two.__name__)
+                finally:
+                    generator._unload_local_model_module(module_one)
+                    generator._unload_local_model_module(module_two)
+                    await generator.aclose()
 
     async def test_image_generation_is_disabled_without_image_model(self):
         with (

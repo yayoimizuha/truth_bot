@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from .normalizer import normalize_status
@@ -66,6 +67,26 @@ class TruthSocialClient:
             preview_url=response.get("preview_url"),
             mime_type=mime_type,
         )
+
+    async def download_media(self, media: MediaAttachment) -> bytes:
+        if not media.url:
+            raise RuntimeError(f"media {media.media_id} has no download URL")
+        return await self._proxy.request_bytes("GET", media.url)
+
+    @staticmethod
+    def infer_media_filename(media: MediaAttachment) -> str:
+        suffix = Path(media.url).suffix if media.url else ""
+        if not suffix and media.mime_type:
+            mime_map = {
+                "image/png": ".png",
+                "image/jpeg": ".jpg",
+                "image/webp": ".webp",
+                "image/gif": ".gif",
+            }
+            suffix = mime_map.get(media.mime_type, "")
+        if not suffix:
+            suffix = ".bin"
+        return f"media-{media.media_id}{suffix}"
 
     async def publish_reply(
         self,

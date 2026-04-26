@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from sns_agent.schemas import AgentResponse, NotificationItem, NormalizedPost
+from sns_agent.schemas import AgentResponse, MediaAttachment, NotificationItem, NormalizedPost
 from sns_agent.service import AgentService, NotificationRetryState
 
 
@@ -168,3 +168,67 @@ class ServiceConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         state = service._notification_retry_states["1"]
         self.assertEqual(state.failures, 1)
         self.assertGreater(state.next_attempt_at, time.monotonic())
+
+    async def test_handle_image_edit_command_collects_attached_images(self):
+        service = self._build_service()
+        target_post = NormalizedPost(
+            post_id="p1",
+            author_handle="alice",
+            author_display_name="Alice",
+            parent_post_id=None,
+            raw_content="",
+            plain_text="/image_edit add flowers",
+            llm_text="/image_edit add flowers",
+            command_text="/image_edit\n\nadd flowers",
+            leading_mentions=[],
+            inline_mentions=[],
+            expanded_urls=[],
+            media=[
+                MediaAttachment(
+                    media_id="m1",
+                    media_type="image",
+                    url="https://example.invalid/cat.png",
+                    mime_type="image/png",
+                )
+            ],
+            created_at=None,
+        )
+        service._social.fetch_status = AsyncMock(return_value=target_post)
+        service._social.fetch_ancestor_chain = AsyncMock(return_value=[target_post])
+        service._social.download_media = AsyncMock(return_value=b"png-bytes")
+        service._social.infer_media_filename = MagicMock(return_value="cat.png")
+        service._image_generator.generate = AsyncMock(return_value=[])
+        service._publisher.publish = AsyncMock()
+
+        await service._handle_notification("n1", "p1")
+
+        request = service._image_generator.generate.await_args.args[0]
+        self.assertEqual(len(request.reference_images), 1)
+        self.assertEqual(request.reference_images[0].content, b"png-bytes")
+        self.assertEqual(request.reference_images[0].filename, "cat.png")
+
+    async def test_handle_image_edit_command_rejects_when_no_attached_images(self):
+        service = self._build_service()
+        target_post = NormalizedPost(
+            post_id="p1",
+            author_handle="alice",
+            author_display_name="Alice",
+            parent_post_id=None,
+            raw_content="",
+            plain_text="/image_edit add flowers",
+            llm_text="/image_edit add flowers",
+            command_text="/image_edit\n\nadd flowers",
+            leading_mentions=[],
+            inline_mentions=[],
+            expanded_urls=[],
+            media=[],
+            created_at=None,
+        )
+        service._social.fetch_status = AsyncMock(return_value=target_post)
+        service._social.fetch_ancestor_chain = AsyncMock(return_value=[target_post])
+        service._publisher.publish = AsyncMock()
+
+        await service._handle_notification("n1", "p1")
+
+        published = service._publisher.publish.await_args.args[0]
+        self.assertIn("/image_edit requires at least one attached image", published.text)

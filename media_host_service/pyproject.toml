@@ -1,0 +1,9 @@
+[project]
+name = "media-host-service"
+version = "0.1.0"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "av",
+    "fastapi[standard]",
+    "pillow",
+]
