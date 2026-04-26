@@ -117,7 +117,7 @@ IMAGE_MODEL=qwen_image_edit
 IMAGE_MODELS_DIR=image_models
 ```
 
-モデル固有の重みパスは `image_models/.env.{実装名}` に置きます。各実装は読み込み時にそのファイルを `load_dotenv(..., override=False)` で読みます。
+モデル固有の重みパスは `image_models/.env.example` を参考に、ローカルの `image_models/.env.{実装名}` を作成して置きます。各実装は読み込み時にそのファイルを `load_dotenv(..., override=False)` で読みます。
 
 ```env
 # image_models/.env.zimage_turbo
